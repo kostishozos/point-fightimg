@@ -52,7 +52,7 @@ function sfx(k){
 }
 
 /* ---------- input: forward / back only ---------- */
-const keys={},buf={punch:0,kick:0,def:0,fake:0,blitz:0,head:0,step:0,lbf:0,hbf:0};
+const keys={},buf={punch:0,kick:0,def:0,fake:0,blitz:0,head:0,step:0,lbf:0,hbf:0,back:0,dbf:0};
 addEventListener('keydown',e=>{
   initAudio();
   keys[e.code]=true;
@@ -62,7 +62,8 @@ addEventListener('keydown',e=>{
   if(e.code==='KeyF')buf.head=8;
   if(e.code==='KeyA')buf.def=8;
   if(e.code==='KeyQ')buf.step=8;
-  if(e.code==='KeyR'){if(e.shiftKey)buf.hbf=8;else buf.lbf=8}
+  if(e.code==='KeyR'){if(keys.ShiftRight)buf.dbf=8;else if(e.shiftKey)buf.hbf=8;else buf.lbf=8}
+  if(e.code==='ShiftRight'&&!e.repeat)buf.back=8;
   if(e.code==='Digit1'||e.code==='Numpad1')buf.fake=4;
   if(e.code.startsWith('Arrow')||e.code==='Space')e.preventDefault();
 });
@@ -113,7 +114,7 @@ makeStick('kickStick',(dx,dy)=>{
   else buf.def=8;
 },()=>{kickArmed=true});
 document.addEventListener('contextmenu',e=>e.preventDefault());
-function pressHeld(){return !!(keys.ShiftLeft||keys.ShiftRight||pad.press)}
+function pressHeld(){return !!(keys.ShiftLeft||pad.press)} // right Shift is the jump back
 function readMove(){
   let x=0;
   if(keys.ArrowLeft)x-=1;
@@ -194,7 +195,11 @@ const MOVES={
   // deep step with the lead leg (back foot stays put), body dips under head strikes, backfist to the body
   lbf:{name:'BACKFIST TO BODY',startup:7,active:6,recovery:14,reach:132,pts:1,step:24,hy:78},
   // same deep step, very quick backfist to the head
-  hbf:{name:'BACKFIST TO HEAD',startup:4,active:5,recovery:12,reach:126,pts:1,step:24,hy:112}
+  hbf:{name:'BACKFIST TO HEAD',startup:4,active:5,recovery:12,reach:126,pts:1,step:24,hy:112},
+  // big jump back off both legs, waist pulled back in the air, land in stance; a reverse punch misses him in the air
+  back:{name:'JUMP BACK',startup:2,active:14,recovery:8,reach:0,pts:0,noHit:1},
+  // same jump back with a backfist to the head while still in the air
+  dbf:{name:'DEFENSIVE BACKFIST',startup:6,active:9,recovery:9,reach:120,pts:1,hy:112}
 };
 const POSE={
   // wide, low side-on stance
@@ -256,6 +261,13 @@ const POSE={
   hbf:{hip:[10,-46],hw:5,sh:[28,-90],sw:10,hd:[40,-106],
     fk:[50,-28],ff:[72,0],ffa:0,ffl:12,bk:[-34,-22],bf:[-68,0],bfa:0,bfl:7,
     le:[62,-104],lf:[96,-112],re:[24,-86],rf:[36,-102]},
+  // in the air going backwards: hips pulled back, legs tucked under him
+  backAir:{hip:[-18,-64],hw:6,sh:[-4,-104],sw:12,hd:[6,-120],
+    fk:[10,-42],ff:[16,-18],ffa:0.2,ffl:12,bk:[-36,-44],bf:[-46,-20],bfa:-0.2,bfl:8,
+    le:[18,-94],lf:[30,-108],re:[-10,-88],rf:[2,-110]},
+  dbfAir:{hip:[-18,-64],hw:5,sh:[0,-104],sw:10,hd:[10,-120],
+    fk:[10,-42],ff:[16,-18],ffa:0.2,ffl:12,bk:[-36,-44],bf:[-46,-20],bfa:-0.2,bfl:8,
+    le:[36,-108],lf:[70,-114],re:[-8,-90],rf:[4,-110]},
   hurt:{hip:[-6,-58],hw:6,sh:[-18,-100],sw:12,hd:[-20,-117],
     fk:[28,-28],ff:[38,0],ffa:0,ffl:12,bk:[-34,-26],bf:[-48,0],bfa:0,bfl:7,
     le:[6,-86],lf:[14,-98],re:[-24,-86],rf:[-14,-100]}
@@ -302,8 +314,8 @@ function onStart(f){
 }
 // in the air during a step in, a side kick to the body goes under him
 const jumpsOver=(a,d)=>(a.mk==='kick'||a.mk==='pkick')&&d.state==='attack'&&d.mk==='step'&&d.t>=2&&d.t<17;
-// step in only exists as an answer to the opponent's kick
-const KICKS=['kick','pkick','head','phead','def'];
+// step in only exists as an answer to the opponent's kick (a kick fake baits it too, and gets countered)
+const KICKS=['kick','pkick','head','phead','def','fakeK'];
 const canStep=f=>{const o=f===P1?CPU:P1;return !!o&&o.state==='attack'&&KICKS.includes(o.mk)};
 function startAttack(f,k){
   if(f.state!=='idle')return false;
@@ -313,6 +325,10 @@ function startAttack(f,k){
 // 1 pressed at the same time as W or D turns that move into a fake.
 // "Same time" allows ~4 frames (about 1/15 s) either way, since fingers never land exactly together.
 function handleButtons(f){
+  // R during the jump back turns it into the defensive backfist, still in the air
+  if(f.state==='attack'&&f.mk==='back'&&f.t<12&&(buf.dbf>0||buf.lbf>0||buf.hbf>0)){
+    f.mk='dbf';f.move=MOVES.dbf;f.hasHit=false;f.ac++;buf.dbf=buf.lbf=buf.hbf=0;sfx('whoosh');
+  }
   // PRESS: hold Shift to lift the lead leg and skip forward; D / F kick from there without the foot touching down
   if(f.pressing&&f.state==='idle'){f.state='press';f.pt=0}
   if(f.state==='press'){
@@ -335,6 +351,8 @@ function handleButtons(f){
   else if(buf.step>0&&startAttack(f,'step'))buf.step=0;
   else if(buf.lbf>0&&startAttack(f,'lbf'))buf.lbf=0;
   else if(buf.hbf>0&&startAttack(f,'hbf'))buf.hbf=0;
+  else if(buf.dbf>0&&startAttack(f,'dbf'))buf.dbf=0;
+  else if(buf.back>0&&startAttack(f,'back'))buf.back=0;
 }
 function advance(f){
   if(f.flash>0)f.flash--;
@@ -368,6 +386,8 @@ function moveFighter(f,dir){
       // lead foot steps deep, back foot stays: the body shifts forward, then comes back as the lead leg returns
       if(f.t<m.startup)f.x+=m.step/m.startup*f.facing;
       else if(f.t>=m.startup+m.active)f.x-=m.step/m.recovery*f.facing;
+    }else if(f.mk==='back'||f.mk==='dbf'){
+      if(f.t>=1&&f.t<16)f.x-=5.5*f.facing; // about a metre back through the air
     }else if(f.mk==='step'){
       if(f.t<17)f.x+=m.lunge*f.facing;
     }else if(f.mk==='def'){
@@ -408,6 +428,11 @@ function inHit(a,d){
     if(dx>0&&dx<=reach&&!a.evaded){a.evaded=true;addPop('DUCKED!',d.x,GROUND-175,'#c9a6ff',30)}
     return false;
   }
+  // jumping back with the waist pulled back: the reverse punch falls short
+  if(a.mk==='punch'&&d.state==='attack'&&(d.mk==='back'||d.mk==='dbf')&&d.t>=1&&d.t<16){
+    if(dx>0&&dx<=reach&&!a.evaded){a.evaded=true;addPop('MISSED!',d.x,GROUND-175,'#c9a6ff',30)}
+    return false;
+  }
   if(dx>0&&dx<=reach-evade&&jumpsOver(a,d)){ // jumped over it
     if(!a.evaded){a.evaded=true;addPop('STEP IN!',d.x,GROUND-175,'#c9a6ff',30)}
     return false;
@@ -433,6 +458,7 @@ function aiThink(){
     const threat=pm&&p.t<pm.startup+2&&adx<pm.reach+pm.lunge*pm.startup+20;
     const room=c.x>MAT_L+90&&c.x<MAT_R-90;
     if(threat&&pm.name&&(p.mk==='kick'||p.mk==='pkick')&&c.state==='idle'&&Math.random()<diff.dodge*0.4)startAttack(c,'step');
+    else if(threat&&p.mk==='punch'&&c.state==='idle'&&Math.random()<diff.dodge*0.35)startAttack(c,'dbf');
     else if(threat&&p.mk==='blitz'&&c.state==='idle'&&adx<240&&Math.random()<diff.dodge*0.5)startAttack(c,'lbf');
     else if(threat&&room&&adx<190&&c.state==='idle'&&Math.random()<diff.dodge*0.5)startAttack(c,'def');
     else if(threat&&Math.random()<diff.dodge)ai.mx=-toward;
@@ -614,7 +640,7 @@ function guestUpdate(){
   }else if(state==='break')moveFighter(CPU,0);
   advance(CPU);separate();
   if(CPU.state==='idle')CPU.facing=P1.x>CPU.x?1:-1;
-  if(buf.punch>0)buf.punch--;if(buf.kick>0)buf.kick--;if(buf.def>0)buf.def--;if(buf.fake>0)buf.fake--;if(buf.blitz>0)buf.blitz--;if(buf.head>0)buf.head--;if(buf.step>0)buf.step--;if(buf.lbf>0)buf.lbf--;if(buf.hbf>0)buf.hbf--;
+  if(buf.punch>0)buf.punch--;if(buf.kick>0)buf.kick--;if(buf.def>0)buf.def--;if(buf.fake>0)buf.fake--;if(buf.blitz>0)buf.blitz--;if(buf.head>0)buf.head--;if(buf.step>0)buf.step--;if(buf.lbf>0)buf.lbf--;if(buf.hbf>0)buf.hbf--;if(buf.back>0)buf.back--;if(buf.dbf>0)buf.dbf--;
   mroom.presence({me:[Math.round(CPU.x*10)/10,CPU.state==='attack'?1:CPU.state==='press'?2:0,CPU.mk||'',CPU.t,CPU.ac,CPU.facing,round_g(),Math.round(CPU.walk*100)/100,CPU.pushT!=null&&frame-CPU.pushT<15?1:0]}).catch(()=>{});
 }
 const round_g=()=>seenRound;
@@ -654,7 +680,7 @@ function award(a,d){
   const ix=d.x-a.facing*8,iy=GROUND-m.hy*S;
   spawnHit(ix,iy,'+'+m.pts);
   hitSeq++;lastHit={x:ix,y:iy,t:'+'+m.pts};
-  const counter=(a.mk==='def'&&d.state==='attack'&&d.mk==='punch')||(a.mk==='lbf'&&d.state==='attack'&&d.mk==='blitz')||(a.mk==='step'&&d.state==='attack'&&(d.mk==='kick'||d.mk==='pkick'))||(a.counterK&&(d.mk==='head'||d.mk==='phead'));
+  const counter=(a.mk==='def'&&d.state==='attack'&&d.mk==='punch')||(a.mk==='dbf'&&d.state==='attack'&&d.mk==='punch')||(a.mk==='lbf'&&d.state==='attack'&&d.mk==='blitz')||(a.mk==='step'&&d.state==='attack'&&(d.mk==='kick'||d.mk==='pkick'||d.mk==='fakeK'))||(a.counterK&&(d.mk==='head'||d.mk==='phead'));
   msg=(a===P1?'BLUE':'RED')+(counter?' COUNTERS!':' SCORES!');sub=(a.mk==='blitz'?(a.t<11?'BLITZ – BACKFIST':'BLITZ – DIRECT TO HEAD'):m.name)+'  +'+m.pts;msgCol=a===P1?'#5cc8ff':'#ff5a4a';
   state='break';stTimer=95;
   if(score[i]>=WIN_AT||golden)pendingEnd=true;
@@ -697,7 +723,7 @@ function showMenu(){
     <p class="sub">Arcade point fighting. Score a clean hit, the referee stops the fight, then you go again.</p>
     <p class="how">${isTouch
       ?'<b>Left stick</b> moves. <b>Right stick</b> kicks: push forward for a side kick, up for a head kick (2 points), back for a defensive kick. <b>REVERSE</b> and <b>BLITZ</b> buttons punch. <b>Double tap</b> REVERSE, or flick the right stick forward twice, to fake.'
-      :'<b>← →</b> move. <b>W</b> reverse punch, <b>E</b> blitz, <b>D</b> side kick, <b>F</b> head kick (2 points), <b>A</b> defensive kick. Press <b>1</b> together with W or D to fake. Hold <b>Shift</b> to <b>press</b>: lead leg up, skip forward, then D or F to kick. <b>Q</b> steps in with a backfist (1 point), only against a kick: time it before a side kick extends to jump over it and counter. <b>R</b> deep step and backfist to the body (1 point): you dip under head strikes and it counters the blitz. <b>Shift+R</b> quick deep-step backfist to the head (1 point). A side kick thrown before a head-kicking leg lifts counters it.'}
+      :'<b>← →</b> move. <b>W</b> reverse punch, <b>E</b> blitz, <b>D</b> side kick, <b>F</b> head kick (2 points), <b>A</b> defensive kick. Press <b>1</b> together with W or D to fake. Hold <b>left Shift</b> to <b>press</b>: lead leg up, skip forward, then D or F to kick. <b>Q</b> steps in with a backfist (1 point), only against a kick: time it before a side kick extends to jump over it and counter. <b>R</b> deep step and backfist to the body (1 point): you dip under head strikes and it counters the blitz. <b>Shift+R</b> quick deep-step backfist to the head (1 point). <b>Right Shift</b> jumps back (a reverse punch misses you in the air); <b>right Shift then R</b> adds a backfist in the air (1 point, counters the reverse). A side kick thrown before a head-kicking leg lifts counters it.'}
     Every other clean hit is 1 point. Stepping off the mat costs 1 point, getting pushed out doesn't. First to ${WIN_AT}, or most points after 60 seconds, wins.</p>
     <p class="how" id="padMsg" style="margin:0">${pad.on?'Controller connected. Press Start to fight on Normal.':isTouch?'':'Got a game controller? Plug it in and press any button.'}</p>
     <p class="how" style="margin:0">Fight the computer:</p>
@@ -766,7 +792,7 @@ function update(){
     stTimer--;
     if(stTimer<=0){if(pendingEnd)endGame();else resetPositions(45)}
   }
-  if(buf.punch>0)buf.punch--;if(buf.kick>0)buf.kick--;if(buf.def>0)buf.def--;if(buf.fake>0)buf.fake--;if(buf.blitz>0)buf.blitz--;if(buf.head>0)buf.head--;if(buf.step>0)buf.step--;if(buf.lbf>0)buf.lbf--;if(buf.hbf>0)buf.hbf--;
+  if(buf.punch>0)buf.punch--;if(buf.kick>0)buf.kick--;if(buf.def>0)buf.def--;if(buf.fake>0)buf.fake--;if(buf.blitz>0)buf.blitz--;if(buf.head>0)buf.head--;if(buf.step>0)buf.step--;if(buf.lbf>0)buf.lbf--;if(buf.hbf>0)buf.hbf--;if(buf.back>0)buf.back--;if(buf.dbf>0)buf.dbf--;
 }
 function updateFx(){
   for(let i=parts.length-1;i>=0;i--){const p=parts[i];p.x+=p.vx;p.y+=p.vy;p.vy+=0.2;p.vx*=0.95;if(--p.life<=0)parts.splice(i,1)}
@@ -924,6 +950,12 @@ function getPose(f){
       if(t<17)return mix(POSE.stepFist,POSE.stepAir,ease((t-15)/2));
       return mix(POSE.stepAir,POSE.stance,ease((t-17)/r));
     }
+    if(f.mk==='back'||f.mk==='dbf'){
+      const A=f.mk==='dbf'?(t<4?POSE.backAir:t<6?mix(POSE.backAir,POSE.dbfAir,ease((t-4)/2)):t<15?POSE.dbfAir:mix(POSE.dbfAir,POSE.backAir,ease((t-15)/2))):POSE.backAir;
+      if(t<2)return mix(POSE.stance,A,ease(t/2));
+      if(t<17)return A;
+      return mix(A,POSE.stance,ease((t-17)/(s+a+r-17)));
+    }
     if(f.mk==='lbf'||f.mk==='hbf'){
       const P=POSE[f.mk];
       if(t<s)return mix(POSE.stance,P,ease(t/s));
@@ -976,7 +1008,7 @@ function drawFighter(f){
   const hpL=[p.hip[0]+px*p.hw,p.hip[1]+py*p.hw],hpR=[p.hip[0]-px*p.hw,p.hip[1]-py*p.hw];
   // small hop (about 5% of his height) while the blitz glides, so he's clearly off the mat
   const pressing=f.state==='press'||(f.state==='attack'&&f.move&&f.move.press);
-  const hop=f.state==='attack'&&f.mk==='blitz'&&f.t>=6&&f.t<20?Math.sin((f.t-6)/14*Math.PI)*7:f.state==='attack'&&f.mk==='step'&&f.t>=2&&f.t<17?Math.sin((f.t-2)/15*Math.PI)*16:pressing?Math.abs(Math.sin((f.pt||0)*0.3))*4:0;
+  const hop=f.state==='attack'&&f.mk==='blitz'&&f.t>=6&&f.t<20?Math.sin((f.t-6)/14*Math.PI)*7:f.state==='attack'&&f.mk==='step'&&f.t>=2&&f.t<17?Math.sin((f.t-2)/15*Math.PI)*16:f.state==='attack'&&(f.mk==='back'||f.mk==='dbf')&&f.t>=1&&f.t<16?Math.sin((f.t-1)/15*Math.PI)*14:pressing?Math.abs(Math.sin((f.pt||0)*0.3))*4:0;
   ctx.save();ctx.translate(f.x,GROUND);
   ctx.fillStyle='rgba(0,0,0,.35)';ctx.beginPath();ctx.ellipse(0,2,44*S*(1-hop/40),9*(1-hop/40),0,0,7);ctx.fill();
   ctx.translate(0,-hop*S);
