@@ -135,23 +135,37 @@ function readMove(){
    A/✕ reverse punch · B/○ blitz · X/□ side kick · Y/△ head kick · RB/R1 defensive kick
    hold LB/L1 while punching or side-kicking to fake · Start/Options: start or rematch */
 const pad={x:0,prev:[],armed:true,on:false,press:false};
+// controller buttons can be changed in Settings -> Controller buttons (saved on this device)
+const PADNAME={0:'A',1:'B',2:'X',3:'Y',4:'LB',5:'RB',6:'LT',7:'RT',8:'View',10:'L3',11:'R3',12:'D-pad up',13:'D-pad down',16:'Xbox'};
+const padName=i=>i==null||i<0?'Not set':(PADNAME[i]||'Button '+i);
+const PADDEF={punch:0,blitz:1,kick:2,head:3,fake:4,def:5,press:6,step:7,dbf:10,back:11,lbf:12,hbf:13};
+const PADACT=[['punch','Reverse punch'],['blitz','Blitz'],['kick','Side kick'],['head','Head kick'],['def','Defensive side kick'],['fake','Fake (hold with punch or side kick)'],['press','Press (hold)'],['step','Step in'],['lbf','Backfist to body'],['hbf','Backfist to head'],['back','Jump back'],['dbf','Defensive backfist']];
+const PADMAP=Object.assign({},PADDEF,(SET.pad&&typeof SET.pad==='object')?SET.pad:{});
+let padWait=null; // move waiting for a button press on the Controller buttons page
 function pollPad(){
   let gp=null;
   try{const all=navigator.getGamepads?navigator.getGamepads():[];for(const g of all)if(g&&g.connected){gp=g;break}}catch(e){}
-  pad.on=!!gp;
+  const was=pad.on;pad.on=!!gp;pad.id=gp?gp.id:'';
+  if(was!==pad.on)padStatus();
   if(!gp){pad.x=0;pad.press=false;return}
-  const B=i=>!!(gp.buttons[i]&&gp.buttons[i].pressed),press=i=>B(i)&&!pad.prev[i];
+  const B=i=>i>=0&&!!(gp.buttons[i]&&gp.buttons[i].pressed),press=i=>B(i)&&!pad.prev[i];
+  if(padWait){ // assigning: the next button pressed goes to this move
+    for(let i=0;i<gp.buttons.length;i++){
+      if(i===9||i===14||i===15||!press(i))continue;
+      for(const k in PADMAP)if(PADMAP[k]===i)PADMAP[k]=-1; // a button does one move only
+      PADMAP[padWait]=i;SET.pad=Object.assign({},PADMAP);saveSet();padWait=null;
+      if(document.getElementById('padmapPage'))showPadMap();
+      break;
+    }
+    pad.prev=gp.buttons.map(b=>b.pressed);return;
+  }
   const ax=gp.axes[0]||0;
   pad.x=(Math.abs(ax)>0.25?ax:0)+(B(14)?-1:0)+(B(15)?1:0);
-  if(B(4))buf.fake=4;
-  pad.press=B(6); // hold LT/L2 to press
-  if(press(7))buf.step=8; // RT/R2: step in
-  if(press(0))buf.punch=8;
-  if(press(1))buf.blitz=8;
-  if(press(2))buf.kick=8;
-  if(press(3))buf.head=8;
-  if(press(5))buf.def=8;
-  if(press(0)||press(1)||press(2)||press(3)||press(5))initAudio();
+  if(B(PADMAP.fake))buf.fake=4;
+  pad.press=B(PADMAP.press);
+  let any=false;
+  for(const k of['punch','blitz','kick','head','def','step','lbf','hbf','back','dbf'])if(press(PADMAP[k])){buf[k]=8;any=true}
+  if(any)initAudio();
   // right stick works like the phone's kick stick
   const rx=gp.axes[2]||0,ry=gp.axes[3]||0,m=Math.hypot(rx,ry);
   if(m<0.3)pad.armed=true;
@@ -162,18 +176,27 @@ function pollPad(){
     else if(Math.sign(rx)===fwd)buf.kick=8;
     else buf.def=8;
   }
-  if(press(9)){
+  if(press(9)&&!document.getElementById('padmapPage')){
     if(state==='menu'&&!mroom)newGame('normal');
     else if(state==='end'&&mode==='cpu')newGame(diffKey);
     else if(state==='end'&&mode==='host'&&findPeer('guest'))startOnlineMatch();
   }
+  // live button test on the Controller buttons page
+  const lt=document.getElementById('padLive');
+  if(lt){const down=[];gp.buttons.forEach((b,i)=>{if(b.pressed)down.push(padName(i))});lt.textContent=down.length?'Pressing: '+down.join(' + '):'Press any button to test it.'}
   pad.prev=gp.buttons.map(b=>b.pressed);
+}
+function padStatus(){
+  const el=document.getElementById('padMsg');
+  if(el)el.textContent=pad.on?'Controller connected. Press Start to fight on Normal.':(isTouch?'':'Got a game controller? Plug it in and press any button.');
+  const s=document.getElementById('padStat');
+  if(s){s.textContent=pad.on?'Connected: '+pad.id:'No controller found. Plug it in, then press any button on it.';s.style.color=pad.on?'#7be3a0':'#ff9d8a'}
 }
 function rumble(){
   if(!SET.rumble)return;
   try{const all=navigator.getGamepads?navigator.getGamepads():[];for(const g of all)if(g&&g.vibrationActuator){g.vibrationActuator.playEffect('dual-rumble',{duration:140,strongMagnitude:0.6,weakMagnitude:0.4}).catch(()=>{});break}}catch(e){}
 }
-addEventListener('gamepadconnected',()=>{const el=document.getElementById('padMsg');if(el)el.textContent='Controller connected. Press Start to fight on Normal.'});
+addEventListener('gamepadconnected',()=>{pad.on=true;padStatus()});addEventListener('gamepaddisconnected',()=>{setTimeout(padStatus,50)});
 
 /* ---------- moves & poses ----------
    Fighters stand side-on (bladed stance): chest toward the camera, lead shoulder toward the opponent.
@@ -755,9 +778,22 @@ function showSettings(){
     <label class="set">Sound <span><input type="range" min="0" max="100" step="5" value="${SET.vol}" data-set="vol"> <output id="o-vol">${SET.vol}%</output></span></label>
     <div class="set">Screen shake on hits ${tog('shake')}</div>
     <div class="set">Controller vibration ${tog('rumble')}</div>
+    <div class="set">Controller buttons <button class="tog" data-padmap="1">Change</button></div>
     <p class="how">Settings are saved on this device.</p>
     <button class="pick grey" data-menu="1">Back</button>`;
   overlay.classList.remove('hide');
+}
+function showPadMap(){
+  state='menu';
+  const row=([k,label])=>`<div class="set"><span style="text-align:left">${label}</span><button class="tog${padWait===k?' wait':''}" data-assign="${k}" style="min-width:120px">${padWait===k?'Press a button…':padName(PADMAP[k])}</button></div>`;
+  overlay.innerHTML=`<p class="big" style="color:#c9a6ff" id="padmapPage">CONTROLLER</p>
+    <p class="how" id="padStat"></p>
+    <p class="how" id="padLive" style="margin:0;color:#ffd25a">Press any button to test it.</p>
+    <p class="how">Tap a move, then press the button you want for it on the controller.</p>
+    ${PADACT.map(row).join('')}
+    <p class="how">Left stick or d-pad left and right always move. Right stick flicks: forward side kick, up head kick, back defensive kick. Menu (Start) starts a fight.</p>
+    <div class="row"><button class="pick grey" data-padreset="1">Reset to default</button><button class="pick setb" data-settings="1">Done</button></div>`;
+  overlay.classList.remove('hide');padStatus();
 }
 function showRules(){
   state='menu';
@@ -780,7 +816,7 @@ function showRules(){
     </ul>
     <h2 class="sec">Controls</h2>
     <ul class="rules">${keysList}</ul>
-    ${isTouch?'':'<p class="how">Controller: left stick moves, A reverse, B blitz, X side kick, Y head kick, RB defensive kick, hold LB to fake, hold LT to press, RT step in.</p>'}
+    ${isTouch?'':'<p class="how">Controller: left stick moves. '+PADACT.map(([k,l])=>padName(PADMAP[k])+' '+l.replace(/ \(.*\)/,'').toLowerCase()).join(', ')+'. Change them in Settings.</p>'}
     <button class="pick grey" data-menu="1">Back</button>`;
   overlay.classList.remove('hide');
   overlay.scrollTop=0;
@@ -798,7 +834,10 @@ overlay.addEventListener('click',e=>{
   const ds=b.dataset;
   if(ds.menu){if(mroom)leaveOnline();else showMenu()}
   else if(ds.cpu)showLevels();
-  else if(ds.settings)showSettings();
+  else if(ds.settings){padWait=null;showSettings()}
+  else if(ds.padmap)showPadMap();
+  else if(ds.assign){padWait=padWait===ds.assign?null:ds.assign;showPadMap()}
+  else if(ds.padreset){padWait=null;Object.assign(PADMAP,PADDEF);SET.pad=Object.assign({},PADMAP);saveSet();showPadMap()}
   else if(ds.rules)showRules();
   else if(ds.toggle){SET[ds.toggle]=!SET[ds.toggle];b.setAttribute('aria-pressed',SET[ds.toggle]);b.textContent=SET[ds.toggle]?'On':'Off';saveSet()}
   else if(ds.d)newGame(ds.d);
