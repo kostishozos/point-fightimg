@@ -18,7 +18,7 @@ function resize(){
 }
 addEventListener('resize',resize);resize();
 /* ---------- settings (saved on this device) ---------- */
-const SET={bright:100,vol:80,shake:true,rumble:true};
+const SET={bright:100,vol:80,shake:true,rumble:true,fighter:0};
 try{Object.assign(SET,JSON.parse(localStorage.getItem('pf-settings')||'{}'))}catch(e){}
 function saveSet(){try{localStorage.setItem('pf-settings',JSON.stringify(SET))}catch(e){}}
 function applySet(){cv.style.filter=SET.bright===100?'':'brightness('+SET.bright/100+')'}
@@ -845,15 +845,17 @@ function fighterSvg(main,dark){
       <circle cx="38" cy="-102" r="7.5" fill="${main}"/>
     </g></svg>`;
 }
-function fighterCard(f){
+function fighterCard(f,i){
   const stats=f.stats.map(([k,v])=>`<div class="st"><span>${k}</span><div class="bar"><span style="width:${v*10}%"></span></div><span class="val">${v}/10</span></div>`).join('');
-  return `<div class="fcard">${fighterSvg(f.main,f.dark)}<h3>${f.name}</h3><p class="ht">Height · ${f.height}</p>${stats}<div style="clear:both"></div></div>`;
+  const sel=SET.fighter===i;
+  const btn=sel?`<button class="tog" style="background:#2a9d5c;min-width:120px" disabled>✓ Selected</button>`:`<button class="tog" data-pick="${i}" style="min-width:120px">Select</button>`;
+  return `<div class="fcard" style="${sel?'border-color:#7be3a0;box-shadow:0 0 0 2px rgba(123,227,160,.35)':''}">${fighterSvg(f.main,f.dark)}<h3>${f.name}</h3><p class="ht">Height · ${f.height}</p>${stats}<div style="clear:both;text-align:right;margin-top:8px">${btn}</div></div>`;
 }
 function showFighters(){
   state='menu';
   overlay.innerHTML=`<p class="big" style="color:#c9a6ff">FIGHTERS</p>
-    <p class="how" style="margin:0 0 6px">The roster so far. Later, these ratings will change how each fighter actually plays.</p>
-    ${FIGHTERS.map(fighterCard).join('')}
+    <p class="how" style="margin:0 0 6px">Pick who you fight as. You're Blue on the mat; the other fighter is the one you fight.</p>
+    ${FIGHTERS.map((f,i)=>fighterCard(f,i)).join('')}
     <button class="pick grey" data-menu="1" style="margin-top:6px">Back</button>`;
   overlay.classList.remove('hide');
   overlay.scrollTop=0;
@@ -903,6 +905,7 @@ overlay.addEventListener('click',e=>{
   else if(ds.padreset){padWait=null;padRec=[];for(const k in PADDEF)PADMAP[k]=PADDEF[k].slice();savePad();showPadMap()}
   else if(ds.rules)showRules();
   else if(ds.fighters)showFighters();
+  else if(ds.pick!=null){SET.fighter=+ds.pick;saveSet();showFighters()}
   else if(ds.toggle){SET[ds.toggle]=!SET[ds.toggle];b.setAttribute('aria-pressed',SET[ds.toggle]);b.textContent=SET[ds.toggle]?'On':'Off';saveSet()}
   else if(ds.d)newGame(ds.d);
   else if(ds.online)showOnline();
@@ -1205,7 +1208,11 @@ function drawHUD(){
     ctx.fillStyle='rgba(255,255,255,.85)';ctx.font='700 14px Barlow, system-ui';ctx.textAlign='left';ctx.fillText(label,x+12,30);
     ctx.fillStyle='#fff';ctx.font='34px Bungee, system-ui';ctx.textAlign='right';ctx.fillText(val,x+140,44);
   };
-  box(14,'#1468d8',mode==='guest'?'BLUE · FRIEND':'BLUE · YOU',score[0]);box(W-164,'#c82a1e',mode==='host'?'RED · FRIEND':mode==='guest'?'RED · YOU':'RED · CPU',score[1]);
+  const meName=FIGHTERS[SET.fighter]?FIGHTERS[SET.fighter].name.split(' ')[0]:'YOU';
+  const foeName=FIGHTERS[1-SET.fighter]?FIGHTERS[1-SET.fighter].name.split(' ')[0]:'CPU';
+  const blueLab=mode==='guest'?'BLUE · FRIEND':'BLUE · '+meName;
+  const redLab=mode==='host'?'RED · FRIEND':mode==='guest'?'RED · '+meName:'RED · '+foeName;
+  box(14,'#1468d8',blueLab,score[0]);box(W-164,'#c82a1e',redLab,score[1]);
   ctx.fillStyle='rgba(0,0,0,.55)';ctx.beginPath();ctx.roundRect(W/2-62,12,124,58,10);ctx.fill();
   ctx.textAlign='center';
   if(golden){ctx.fillStyle='#ffd25a';ctx.font='16px Bungee, system-ui';ctx.fillText('GOLDEN',W/2,32);ctx.fillText('POINT',W/2,52)}
