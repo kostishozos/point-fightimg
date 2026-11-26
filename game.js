@@ -111,6 +111,7 @@ makeStick('kickStick',(dx,dy)=>{
   else buf.def=8;
 },()=>{kickArmed=true});
 document.addEventListener('contextmenu',e=>e.preventDefault());
+function pressHeld(){return !!(keys.ShiftLeft||keys.ShiftRight||pad.press)}
 function readMove(){
   let x=0;
   if(keys.ArrowLeft)x-=1;
@@ -122,16 +123,17 @@ function readMove(){
    left stick or d-pad: move · right stick: forward side kick, up head kick, back defensive kick
    A/✕ reverse punch · B/○ blitz · X/□ side kick · Y/△ head kick · RB/R1 defensive kick
    hold LB/L1 while punching or side-kicking to fake · Start/Options: start or rematch */
-const pad={x:0,prev:[],armed:true,on:false};
+const pad={x:0,prev:[],armed:true,on:false,press:false};
 function pollPad(){
   let gp=null;
   try{const all=navigator.getGamepads?navigator.getGamepads():[];for(const g of all)if(g&&g.connected){gp=g;break}}catch(e){}
   pad.on=!!gp;
-  if(!gp){pad.x=0;return}
+  if(!gp){pad.x=0;pad.press=false;return}
   const B=i=>!!(gp.buttons[i]&&gp.buttons[i].pressed),press=i=>B(i)&&!pad.prev[i];
   const ax=gp.axes[0]||0;
   pad.x=(Math.abs(ax)>0.25?ax:0)+(B(14)?-1:0)+(B(15)?1:0);
   if(B(4))buf.fake=4;
+  pad.press=B(6); // hold LT/L2 to press
   if(press(0))buf.punch=8;
   if(press(1))buf.blitz=8;
   if(press(2))buf.kick=8;
@@ -179,6 +181,10 @@ const MOVES={
   blitz:{name:'BLITZ',startup:8,active:12,recovery:24,reach:125,pts:1,lunge:7,hy:116},
   fakeP:{name:'PUNCH FAKE',startup:6,active:2,recovery:10,reach:0,pts:0,lunge:1.2,fake:'punch'},
   fakeK:{name:'KICK FAKE',startup:5,active:2,recovery:9,reach:0,pts:0,lunge:0,fake:'kick'},
+  // press: lead leg stays up off the mat while he skips forward; kicks fire straight from the raised leg
+  pkick:{name:'PRESS SIDE KICK',startup:4,active:8,recovery:8,reach:138,pts:1,lunge:2.4,hy:76,press:1},
+  phead:{name:'PRESS HEAD KICK',startup:6,active:7,recovery:9,reach:132,pts:2,lunge:2.4,hy:120,press:1},
+  pdown:{name:'',startup:0,active:0,recovery:8,reach:0,pts:0,lunge:0,noHit:1},
   def:{name:'DEFENSIVE SIDE KICK',startup:8,active:7,recovery:28,reach:146,pts:1,lunge:-1.5,hy:76}
 };
 const POSE={
@@ -263,6 +269,7 @@ const isOut=f=>f.x<MAT_L||f.x>MAT_R;
 const wasPushed=f=>(f.pushT!=null&&frame-f.pushT<15)||(mode==='host'&&f===CPU&&!!f.remotePush);
 let P1,CPU;
 
+function begin(f,k){f.state='attack';f.mk=k;f.move=MOVES[k];f.t=0;f.hasHit=false;f.ac++;if(k!=='pdown')sfx('whoosh')}
 function startAttack(f,k){
   if(f.state!=='idle')return false;
   f.state='attack';f.mk=k;f.move=MOVES[k];f.t=0;f.hasHit=false;f.ac++;sfx('whoosh');return true;
@@ -270,6 +277,14 @@ function startAttack(f,k){
 // 1 pressed at the same time as W or D turns that move into a fake.
 // "Same time" allows ~4 frames (about 1/15 s) either way, since fingers never land exactly together.
 function handleButtons(f){
+  // PRESS: hold Shift to lift the lead leg and skip forward; D / F kick from there without the foot touching down
+  if(f.pressing&&f.state==='idle'){f.state='press';f.pt=0}
+  if(f.state==='press'){
+    if(!f.pressing)begin(f,'pdown');
+    else if(buf.kick>0){begin(f,'pkick');buf.kick=0;buf.fake=0}
+    else if(buf.head>0){begin(f,'phead');buf.head=0}
+    return;
+  }
   if(buf.fake>0&&f.state==='attack'&&f.t<4){
     if(f.mk==='punch'){f.mk='fakeP';f.move=MOVES.fakeP;f.ac++;buf.fake=0}
     else if(f.mk==='kick'){f.mk='fakeK';f.move=MOVES.fakeK;f.ac++;buf.fake=0}
@@ -285,13 +300,21 @@ function advance(f){
   if(f.flash>0)f.flash--;
   if(f.state!=='attack')return;
   f.t++;
-  const m=f.move;if(f.t>=m.startup+m.active+m.recovery){f.state='idle';f.move=null}
+  const m=f.move;
+  if(f.t>=m.startup+m.active+m.recovery){
+    const wasPress=m.press;f.state='idle';f.move=null;
+    if(wasPress){if(f.pressing)f.state='press';else begin(f,'pdown')} // leg goes back up, or comes down
+  }
 }
 function moveFighter(f,dir){
   // dir is in screen terms for the player (-1 left, +1 right)
   if(f.state==='idle'){
     f.x+=dir*SPX*f.spd;
     if(dir)f.walk+=0.3;
+  }else if(f.state==='press'){
+    if(state==='fight')f.x+=2.4*f.facing;f.pt=(f.pt||0)+1; // skipping forward on the back foot
+  }else if(f.state==='attack'&&f.move.press){
+    f.x+=f.move.lunge*f.facing;f.pt=(f.pt||0)+1;
   }else if(f.state==='attack'){
     const m=f.move;
     if(f.mk==='punch'){
@@ -329,7 +352,7 @@ function face(){
 }
 function inHit(a,d){
   if(a.state!=='attack'||a.hasHit)return false;
-  const m=a.move;if(m.fake||a.t<m.startup||a.t>=m.startup+m.active)return false;
+  const m=a.move;if(m.fake||m.noHit||a.t<m.startup||a.t>=m.startup+m.active)return false;
   const dx=(d.x-a.x)*a.facing;
   // leaning back for a defensive kick takes the head/body out of range
   const evade=(d.state==='attack'&&d.mk==='def'&&d.t<d.move.startup+d.move.active)?25:0;
@@ -481,7 +504,7 @@ function opponentLeft(){
   overlay.classList.remove('hide');
 }
 function makeSnap(){
-  const fz=f=>[Math.round(f.x*10)/10,f.facing,f.state==='attack'?1:0,f.mk||'',f.t,f.flash,Math.round(f.walk*100)/100];
+  const fz=f=>[Math.round(f.x*10)/10,f.facing,f.state==='attack'?1:f.state==='press'?2:0,f.mk||'',f.t,f.flash,Math.round(f.walk*100)/100];
   return{g:gameId,rd:round,s:state,st:stTimer,tm:timer,gd:golden?1:0,sc:[score[0],score[1]],f:[fz(P1),fz(CPU)],
     ll:lastLoser===P1?0:lastLoser===CPU?1:-1,m:msg,sb:sub,mc:msgCol,
     h:[hitSeq,Math.round(lastHit.x),Math.round(lastHit.y),lastHit.t],
@@ -501,7 +524,7 @@ function applySnap(sn){
     if(f===CPU&&!newRound){f.flash=num(a[5],0);return} // my own fighter: keep my local version
     const wasAtk=f.state==='attack',pmk=f.mk,pt=f.t;
     f.x=num(a[0],f.x);f.facing=a[1]<0?-1:1;
-    f.mk=MOVES[a[3]]?a[3]:'';f.state=a[2]&&f.mk?'attack':'idle';f.move=f.state==='attack'?MOVES[f.mk]:null;
+    f.mk=MOVES[a[3]]?a[3]:'';f.state=a[2]===2?'press':a[2]&&f.mk?'attack':'idle';f.move=f.state==='attack'?MOVES[f.mk]:null;
     f.t=num(a[4],0);f.flash=num(a[5],0);f.walk=num(a[6],0);
     if(f===P1&&f.state==='attack'&&(!wasAtk||pmk!==f.mk||f.t<pt-2))sfx('whoosh');
   });
@@ -528,13 +551,14 @@ function guestUpdate(){
   if(!P1||state==='end'||state==='lobby')return;
   // my fighter (Red) runs right here, so the controls respond instantly
   if(state==='fight'){
+    CPU.pressing=pressHeld();
     handleButtons(CPU);
     moveFighter(CPU,readMove());
   }else if(state==='break')moveFighter(CPU,0);
   advance(CPU);separate();
   if(CPU.state==='idle')CPU.facing=P1.x>CPU.x?1:-1;
   if(buf.punch>0)buf.punch--;if(buf.kick>0)buf.kick--;if(buf.def>0)buf.def--;if(buf.fake>0)buf.fake--;if(buf.blitz>0)buf.blitz--;if(buf.head>0)buf.head--;
-  mroom.presence({me:[Math.round(CPU.x*10)/10,CPU.state==='attack'?1:0,CPU.mk||'',CPU.t,CPU.ac,CPU.facing,round_g(),Math.round(CPU.walk*100)/100,CPU.pushT!=null&&frame-CPU.pushT<15?1:0]}).catch(()=>{});
+  mroom.presence({me:[Math.round(CPU.x*10)/10,CPU.state==='attack'?1:CPU.state==='press'?2:0,CPU.mk||'',CPU.t,CPU.ac,CPU.facing,round_g(),Math.round(CPU.walk*100)/100,CPU.pushT!=null&&frame-CPU.pushT<15?1:0]}).catch(()=>{});
 }
 const round_g=()=>seenRound;
 // Red is simulated on the guest's own screen (no input delay for them); the host
@@ -543,7 +567,8 @@ function hostReadGuest(){
   const g=findPeer('guest'),a=g&&g.presence.me;
   if(!Array.isArray(a)||!CPU)return;
   if(num(a[6],-1)!==round)return; // still from the previous exchange
-  const atk=!!a[1],mk=MOVES[a[2]]?a[2]:'',ac=num(a[4],0);
+  const atk=a[1]===1,mk=MOVES[a[2]]?a[2]:'',ac=num(a[4],0);
+  if(a[1]===2&&CPU.state!=='attack')CPU.state='press';else if(a[1]===0&&CPU.state==='press')CPU.state='idle';
   if(ac!==CPU.ac){CPU.ac=ac;if(atk&&mk){CPU.state='attack';CPU.mk=mk;CPU.move=MOVES[mk];CPU.hasHit=false;sfx('whoosh')}}
   if(atk&&mk&&CPU.state==='attack'&&CPU.mk===mk)CPU.t=num(a[3],CPU.t);
   else if(!atk&&CPU.state==='attack'){CPU.state='idle';CPU.move=null}
@@ -615,7 +640,7 @@ function showMenu(){
     <p class="sub">Arcade point fighting. Score a clean hit, the referee stops the fight, then you go again.</p>
     <p class="how">${isTouch
       ?'<b>Left stick</b> moves. <b>Right stick</b> kicks: push forward for a side kick, up for a head kick (2 points), back for a defensive kick. <b>REVERSE</b> and <b>BLITZ</b> buttons punch. <b>Double tap</b> REVERSE, or flick the right stick forward twice, to fake.'
-      :'<b>← →</b> move. <b>W</b> reverse punch, <b>E</b> blitz, <b>D</b> side kick, <b>F</b> head kick (2 points), <b>A</b> defensive kick. Press <b>1</b> together with W or D to fake.'}
+      :'<b>← →</b> move. <b>W</b> reverse punch, <b>E</b> blitz, <b>D</b> side kick, <b>F</b> head kick (2 points), <b>A</b> defensive kick. Press <b>1</b> together with W or D to fake. Hold <b>Shift</b> to <b>press</b>: lead leg up, skip forward, then D or F to kick.'}
     Every other clean hit is 1 point. Stepping off the mat costs 1 point, getting pushed out doesn't. First to ${WIN_AT}, or most points after 60 seconds, wins.</p>
     <p class="how" id="padMsg" style="margin:0">${pad.on?'Controller connected. Press Start to fight on Normal.':isTouch?'':'Got a game controller? Plug it in and press any button.'}</p>
     <p class="how" style="margin:0">Fight the computer:</p>
@@ -657,6 +682,7 @@ function update(){
         else{endGame();return}
       }
     }
+    P1.pressing=pressHeld();
     handleButtons(P1);
     moveFighter(P1,readMove());
     if(mode!=='host')moveFighter(CPU,aiThink());
@@ -828,6 +854,13 @@ function getPose(f){
       if(k<2)return compose(UP.run,mix(LEG.B,LEG.A,ease(k-1)));
       return mix(compose(UP.run,LEG.A),POSE.stance,ease((t-36)/(s+a+r-36)));
     }
+    if(f.mk==='pkick'||f.mk==='phead'){
+      const KK=f.mk==='phead'?POSE.hKick:POSE.kick;
+      if(t<s)return mix(POSE.chamber,KK,ease(t/s));
+      if(t<s+a)return KK;
+      return mix(KK,POSE.chamber,ease((t-s-a)/r));
+    }
+    if(f.mk==='pdown')return mix(POSE.chamber,POSE.stance,ease(t/r));
     if(m.fake){
       const P=POSE[f.mk];
       if(t<s)return mix(POSE.stance,P,ease(t/s));
@@ -848,6 +881,7 @@ function getPose(f){
     if(t<s+a)return KK;
     const u=(t-s-a)/r;return u<0.5?mix(KK,CH,ease(u/0.5)):mix(CH,POSE.stance,ease((u-0.5)/0.5));
   }
+  if(f.state==='press')return POSE.chamber;
   // bouncy side-on stance, shuffle feet when moving
   const p=mix(POSE.stance,POSE.stance,0),bob=Math.sin(frame*0.14+(f.team==='red'?1.5:0))*2,w=Math.sin(f.walk)*5;
   for(const k of['hip','sh','hd','le','lf','re','rf'])p[k][1]+=bob;
@@ -871,7 +905,8 @@ function drawFighter(f){
   const shL=[p.sh[0]+px*p.sw,p.sh[1]+py*p.sw],shR=[p.sh[0]-px*p.sw,p.sh[1]-py*p.sw];
   const hpL=[p.hip[0]+px*p.hw,p.hip[1]+py*p.hw],hpR=[p.hip[0]-px*p.hw,p.hip[1]-py*p.hw];
   // small hop (about 5% of his height) while the blitz glides, so he's clearly off the mat
-  const hop=f.state==='attack'&&f.mk==='blitz'&&f.t>=6&&f.t<20?Math.sin((f.t-6)/14*Math.PI)*7:0;
+  const pressing=f.state==='press'||(f.state==='attack'&&f.move&&f.move.press);
+  const hop=f.state==='attack'&&f.mk==='blitz'&&f.t>=6&&f.t<20?Math.sin((f.t-6)/14*Math.PI)*7:pressing?Math.abs(Math.sin((f.pt||0)*0.3))*4:0;
   ctx.save();ctx.translate(f.x,GROUND);
   ctx.fillStyle='rgba(0,0,0,.35)';ctx.beginPath();ctx.ellipse(0,2,44*S*(1-hop/40),9*(1-hop/40),0,0,7);ctx.fill();
   ctx.translate(0,-hop*S);
