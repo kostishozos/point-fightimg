@@ -241,8 +241,9 @@ const MOVES={
   fakeP:{name:'PUNCH FAKE',startup:6,active:2,recovery:10,reach:0,pts:0,lunge:1.2,fake:'punch'},
   fakeK:{name:'KICK FAKE',startup:5,active:2,recovery:9,reach:0,pts:0,lunge:0,fake:'kick'},
   // press: lead leg stays up off the mat while he skips forward; kicks fire straight from the raised leg
-  pkick:{name:'PRESS SIDE KICK',startup:4,active:8,recovery:8,reach:138,pts:1,lunge:2.4,hy:76,press:1},
-  phead:{name:'PRESS HEAD KICK',startup:6,active:7,recovery:9,reach:132,pts:2,lunge:2.4,hy:120,press:1},
+  // the leg snaps back to the chamber quickly so a reverse punch can't fit cleanly between two press kicks
+  pkick:{name:'PRESS SIDE KICK',startup:4,active:8,recovery:4,reach:138,pts:1,lunge:2.4,hy:76,press:1},
+  phead:{name:'PRESS HEAD KICK',startup:6,active:7,recovery:5,reach:132,pts:2,lunge:2.4,hy:120,press:1},
   pdown:{name:'',startup:0,active:0,recovery:8,reach:0,pts:0,lunge:0,noHit:1},
   // step in: a quick low jump forward with a backfist in the air (1 pt); a side kick to the body passes under him
   step:{name:'STEP IN BACKFIST',startup:6,active:9,recovery:10,reach:118,pts:1,lunge:4.5,hy:116},
