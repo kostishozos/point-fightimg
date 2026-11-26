@@ -359,7 +359,7 @@ const isOut=f=>f.x<MAT_L||f.x>MAT_R;
 const wasPushed=f=>(f.pushT!=null&&frame-f.pushT<15)||(mode==='host'&&f===CPU&&!!f.remotePush);
 let P1,CPU;
 
-function begin(f,k){f.state='attack';f.mk=k;f.move=MOVES[k];f.t=0;f.hasHit=false;f.ac++;onStart(f);if(k!=='pdown')sfx('whoosh')}
+function begin(f,k){f.state='attack';f.mk=k;f.move=scaledMove(f,k);f.t=0;f.hasHit=false;f.ac++;onStart(f);if(k!=='pdown')sfx('whoosh')}
 // Perfect timing: a side kick started before the opponent's head-kicking leg has even lifted (first ~4 frames)
 // jams the head kick (it can't score) and the side kick counts as a counter.
 function onStart(f){
@@ -375,14 +375,14 @@ const canStep=f=>{const o=f===P1?CPU:P1;return !!o&&o.state==='attack'&&KICKS.in
 function startAttack(f,k){
   if(f.state!=='idle')return false;
   if(k==='step'&&!canStep(f))return false;
-  f.state='attack';f.mk=k;f.move=MOVES[k];f.t=0;f.hasHit=false;f.ac++;onStart(f);sfx('whoosh');return true;
+  f.state='attack';f.mk=k;f.move=scaledMove(f,k);f.t=0;f.hasHit=false;f.ac++;onStart(f);sfx('whoosh');return true;
 }
 // 1 pressed at the same time as W or D turns that move into a fake.
 // "Same time" allows ~4 frames (about 1/15 s) either way, since fingers never land exactly together.
 function handleButtons(f){
   // R during the jump back turns it into the defensive backfist, still in the air
   if(f.state==='attack'&&f.mk==='back'&&f.t<12&&(buf.dbf>0||buf.lbf>0||buf.hbf>0)){
-    f.mk='dbf';f.move=MOVES.dbf;f.hasHit=false;f.ac++;buf.dbf=buf.lbf=buf.hbf=0;sfx('whoosh');
+    f.mk='dbf';f.move=scaledMove(f,'dbf');f.hasHit=false;f.ac++;buf.dbf=buf.lbf=buf.hbf=0;sfx('whoosh');
   }
   // PRESS: hold Shift to lift the lead leg and skip forward; D / F kick from there without the foot touching down
   if(f.pressing&&f.state==='idle'){f.state='press';f.pt=0}
@@ -394,8 +394,8 @@ function handleButtons(f){
     return;
   }
   if(buf.fake>0&&f.state==='attack'&&f.t<4){
-    if(f.mk==='punch'){f.mk='fakeP';f.move=MOVES.fakeP;f.ac++;buf.fake=0}
-    else if(f.mk==='kick'){f.mk='fakeK';f.move=MOVES.fakeK;f.ac++;buf.fake=0}
+    if(f.mk==='punch'){f.mk='fakeP';f.move=scaledMove(f,'fakeP');f.ac++;buf.fake=0}
+    else if(f.mk==='kick'){f.mk='fakeK';f.move=scaledMove(f,'fakeK');f.ac++;buf.fake=0}
   }
   const fk=buf.fake>0;
   if(buf.punch>0&&startAttack(f,fk?'fakeP':'punch')){buf.punch=0;if(fk)buf.fake=0}
@@ -424,7 +424,7 @@ function advance(f){
 function moveFighter(f,dir){
   // dir is in screen terms for the player (-1 left, +1 right)
   if(f.state==='idle'){
-    f.x+=dir*SPX*f.spd;
+    f.x+=dir*SPX*f.spd*moveSpdMult(f);
     if(dir)f.walk+=0.3;
   }else if(f.state==='press'){
     if(state==='fight')f.x+=2.4*f.facing;f.pt=(f.pt||0)+1; // skipping forward on the back foot
@@ -827,8 +827,8 @@ function showPadMap(){
   overlay.classList.remove('hide');padStatus();
 }
 const FIGHTERS=[
-  {name:'KONSTANTINOS CHOZOS',height:'1.85 m',heightM:1.85,flex:10,main:'#1e8cff',dark:'#0b4fa8',stats:[['Kicks flex',10],['Kicks speed',9],['Punches speed',8],['Movement speed',8]]},
-  {name:'MURPHY BAILY',height:'1.77 m',heightM:1.77,flex:8,main:'#e8392c',dark:'#9c1d14',stats:[['Kicks flex',8],['Kicks speed',7],['Punches speed',10],['Movement speed',9]]}
+  {name:'KONSTANTINOS CHOZOS',height:'1.85 m',heightM:1.85,flex:10,kickSpd:9,punchSpd:8,moveSpd:8,main:'#1e8cff',dark:'#0b4fa8',stats:[['Kicks flex',10],['Kicks speed',9],['Punches speed',8],['Movement speed',8]]},
+  {name:'MURPHY BAILY',height:'1.77 m',heightM:1.77,flex:8,kickSpd:7,punchSpd:10,moveSpd:9,main:'#e8392c',dark:'#9c1d14',stats:[['Kicks flex',8],['Kicks speed',7],['Punches speed',10],['Movement speed',9]]}
 ];
 // kick flexibility: your max kick height = flex * 0.115 * your own height (in metres).
 // if the opponent's head (~0.92 of their height) is higher than that, head kicks can't score on them.
@@ -837,6 +837,20 @@ function headOutOfReach(a,d){
   if(mode!=='cpu')return false;
   const af=fighterOf(a),df=fighterOf(d);
   return !!(af&&df&&af.flex*0.115*af.heightM<df.heightM*0.92);
+}
+// punches/kicks speed: each point above 7/10 shaves 5% off startup; each below adds 5%.
+// movement speed: each point above 7/10 adds 4% to walking speed (baseline 7).
+const PUNCH_MOVES={punch:1,blitz:1,lbf:1,hbf:1,step:1,dbf:1,fakeP:1};
+const KICK_MOVES={kick:1,head:1,pkick:1,phead:1,def:1,fakeK:1};
+function moveSpdMult(f){const g=fighterOf(f);return mode==='cpu'&&g?1+(g.moveSpd-7)*0.04:1}
+function scaledMove(f,k){
+  const base=MOVES[k];
+  if(mode!=='cpu')return base;
+  const isK=KICK_MOVES[k],isP=PUNCH_MOVES[k];
+  if(!isK&&!isP)return base;
+  const g=fighterOf(f);if(!g)return base;
+  const s=Math.max(1,Math.round(base.startup*(1-((isK?g.kickSpd:g.punchSpd)-7)*0.05)));
+  return s===base.startup?base:Object.assign({},base,{startup:s});
 }
 function fighterSvg(main,dark){
   // small stance-pose portrait, same style as the fighters on the mat
@@ -891,7 +905,13 @@ function showRules(){
       <li>Backfist to the body ducks under head strikes and beats the blitz.</li>
       <li>Step in jumps over a side kick (or a kick fake) and counters it.</li>
       <li>A side kick thrown before a head-kicking leg lifts jams it.</li>
-      <li>Head kicks only score if your <b>Kicks flex</b> can reach the opponent's head — pick a fighter flexible enough for the tall opponent.</li>
+    </ul>
+    <h2 class="sec">Fighter stats</h2>
+    <ul class="rules">
+      <li><b>Kicks flex</b>: how high you can kick — if your opponent is taller than your reach, head kicks won't score.</li>
+      <li><b>Kicks speed</b>: a higher rating makes every kick come out faster.</li>
+      <li><b>Punches speed</b>: a higher rating makes every punch come out faster.</li>
+      <li><b>Movement speed</b>: a higher rating walks faster on the mat.</li>
     </ul>
     <h2 class="sec">Controls</h2>
     <ul class="rules">${keysList}</ul>
@@ -1256,7 +1276,7 @@ function render(){
   ctx.restore();
   if(!P1)return;
   drawHUD();
-  if(state==='ready')bigText(stTimer>28?'READY...':'FIGHT!',150,stTimer>28?40:56,stTimer>40?'#fff':'#ffd25a');
+  if(state==='ready')bigText(stTimer>28?'READY...':'FIGHT!',150,stTimer>28?40:56,stTimer>28?'#fff':'#ffd25a');
   if(state==='break'){bigText('STOP!',120,30,'#fff');bigText(msg,158,40,msgCol);bigText(sub,194,20,'#ffd25a')}
 }
 
