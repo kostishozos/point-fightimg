@@ -137,7 +137,7 @@ function readMove(){
 const pad={x:0,prev:[],armed:true,on:false,press:false};
 // controller buttons can be changed in Settings -> Controller buttons (saved on this device).
 // Every move can be one button or a combination pressed together (e.g. RB + B).
-const PADNAME={0:'A',1:'B',2:'X',3:'Y',4:'LB',5:'RB',6:'LT',7:'RT',8:'View',10:'L3',11:'R3',12:'D-pad up',13:'D-pad down',16:'Xbox'};
+const PADNAME={0:'A',1:'B',2:'X',3:'Y',4:'LB',5:'RB',6:'LT',7:'RT',8:'View',9:'Menu',10:'L3',11:'R3',12:'D-pad up',13:'D-pad down',14:'D-pad left',15:'D-pad right',16:'Xbox'};
 const padName=i=>PADNAME[i]||'Button '+i;
 const comboName=c=>c&&c.length?c.map(padName).join(' + '):'Not set';
 const PADDEF={punch:[0],blitz:[1],kick:[2],head:[3],def:[5],fakeP:[4,0],fakeK:[4,2],press:[6],step:[7],lbf:[12],hbf:[13],back:[11],dbf:[10]};
@@ -156,10 +156,10 @@ function pollPad(){
   if(!gp){pad.x=0;pad.press=false;return}
   pf++;
   const B=i=>!!(gp.buttons[i]&&gp.buttons[i].pressed),press=i=>B(i)&&!pad.prev[i];
-  const NB=gp.buttons.length,anyDown=()=>{for(let i=0;i<NB;i++)if(i!==9&&B(i))return true;return false};
+  const NB=gp.buttons.length,anyDown=()=>{for(let i=0;i<NB;i++)if(B(i))return true;return false};
   const lt=document.getElementById('padLive');
   if(padWait){ // recording: collect every button pressed, save when all are let go
-    for(let i=0;i<NB;i++)if(press(i)&&i!==9&&i!==14&&i!==15&&!padRec.includes(i))padRec.push(i);
+    for(let i=0;i<NB;i++)if(press(i)&&!padRec.includes(i))padRec.push(i);
     if(lt)lt.textContent=padRec.length?'Recording: '+comboName(padRec)+' (let go to save)':'Press one button, or hold several together…';
     if(padRec.length&&!anyDown()){
       for(const k in PADMAP)if(k!==padWait&&sameCombo(PADMAP[k],padRec))PADMAP[k]=[]; // one move per combination
@@ -169,7 +169,9 @@ function pollPad(){
     pad.prev=gp.buttons.map(b=>b.pressed);return;
   }
   const ax=gp.axes[0]||0;
-  pad.x=(Math.abs(ax)>0.25?ax:0)+(B(14)?-1:0)+(B(15)?1:0);
+  // d-pad left/right move the fighter, unless the player gave them to a move
+  const used=i=>Object.values(PADMAP).some(c=>c.includes(i));
+  pad.x=(Math.abs(ax)>0.25?ax:0)+(B(14)&&!used(14)?-1:0)+(B(15)&&!used(15)?1:0);
   const pc=PADMAP.press;pad.press=pc.length>0&&pc.every(B);
   let any=false;const fire=k=>{if(k!=='press'){buf[k]=8;any=true}};
   for(let i=0;i<NB;i++)if(press(i)){pT[i]=pf;pUsed[i]=false;pPend.add(i)}
@@ -814,7 +816,7 @@ function showPadMap(){
     <p class="how" id="padLive" style="margin:0;color:#ffd25a">Press any button to test it.</p>
     <p class="how">Tap a move, then press one button, or hold two or more together for a combination (like RB + B), and let go.</p>
     ${PADACT.map(row).join('')}
-    <p class="how">Left stick or d-pad left and right always move. Right stick flicks: forward side kick, up head kick, back defensive kick. Menu (Start) starts a fight.</p>
+    <p class="how">Every button can be used, the d-pad and Menu included. The left stick always moves; d-pad left and right also move unless you give them to a move. Right stick flicks: forward side kick, up head kick, back defensive kick.</p>
     <div class="row"><button class="pick grey" data-padreset="1">Reset to default</button><button class="pick setb" data-settings="1">Done</button></div>`;
   overlay.classList.remove('hide');padStatus();
 }
