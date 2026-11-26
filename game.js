@@ -60,7 +60,7 @@ function sfx(k){
 }
 
 /* ---------- input: forward / back only ---------- */
-const keys={},buf={punch:0,kick:0,def:0,fake:0,blitz:0,head:0,step:0,lbf:0,hbf:0,back:0,dbf:0};
+const keys={},buf={punch:0,kick:0,def:0,fake:0,blitz:0,head:0,step:0,lbf:0,hbf:0,back:0,dbf:0,fakeP:0,fakeK:0};
 addEventListener('keydown',e=>{
   initAudio();
   keys[e.code]=true;
@@ -135,36 +135,58 @@ function readMove(){
    A/✕ reverse punch · B/○ blitz · X/□ side kick · Y/△ head kick · RB/R1 defensive kick
    hold LB/L1 while punching or side-kicking to fake · Start/Options: start or rematch */
 const pad={x:0,prev:[],armed:true,on:false,press:false};
-// controller buttons can be changed in Settings -> Controller buttons (saved on this device)
+// controller buttons can be changed in Settings -> Controller buttons (saved on this device).
+// Every move can be one button or a combination pressed together (e.g. RB + B).
 const PADNAME={0:'A',1:'B',2:'X',3:'Y',4:'LB',5:'RB',6:'LT',7:'RT',8:'View',10:'L3',11:'R3',12:'D-pad up',13:'D-pad down',16:'Xbox'};
-const padName=i=>i==null||i<0?'Not set':(PADNAME[i]||'Button '+i);
-const PADDEF={punch:0,blitz:1,kick:2,head:3,fake:4,def:5,press:6,step:7,dbf:10,back:11,lbf:12,hbf:13};
-const PADACT=[['punch','Reverse punch'],['blitz','Blitz'],['kick','Side kick'],['head','Head kick'],['def','Defensive side kick'],['fake','Fake (hold with punch or side kick)'],['press','Press (hold)'],['step','Step in'],['lbf','Backfist to body'],['hbf','Backfist to head'],['back','Jump back'],['dbf','Defensive backfist']];
-const PADMAP=Object.assign({},PADDEF,(SET.pad&&typeof SET.pad==='object')?SET.pad:{});
-let padWait=null; // move waiting for a button press on the Controller buttons page
+const padName=i=>PADNAME[i]||'Button '+i;
+const comboName=c=>c&&c.length?c.map(padName).join(' + '):'Not set';
+const PADDEF={punch:[0],blitz:[1],kick:[2],head:[3],def:[5],fakeP:[4,0],fakeK:[4,2],press:[6],step:[7],lbf:[12],hbf:[13],back:[11],dbf:[10]};
+const PADACT=[['punch','Reverse punch'],['blitz','Blitz'],['kick','Side kick'],['head','Head kick'],['def','Defensive side kick'],['fakeP','Punch fake'],['fakeK','Kick fake'],['press','Press (hold)'],['step','Step in'],['lbf','Backfist to body'],['hbf','Backfist to head'],['back','Jump back'],['dbf','Defensive backfist']];
+const PADMAP={};
+for(const k in PADDEF){const v=SET.pad2&&SET.pad2[k];PADMAP[k]=Array.isArray(v)?v.filter(n=>Number.isInteger(n)&&n>=0&&n<32):PADDEF[k].slice()}
+let padWait=null,padRec=[]; // move being recorded, and the buttons pressed so far
+const pT=[],pUsed=[],pPend=new Set();let pf=0;
+const sameCombo=(a,b)=>a.length===b.length&&a.every(x=>b.includes(x));
+function savePad(){SET.pad2={};for(const k in PADMAP)SET.pad2[k]=PADMAP[k].slice();saveSet()}
 function pollPad(){
   let gp=null;
   try{const all=navigator.getGamepads?navigator.getGamepads():[];for(const g of all)if(g&&g.connected){gp=g;break}}catch(e){}
   const was=pad.on;pad.on=!!gp;pad.id=gp?gp.id:'';
   if(was!==pad.on)padStatus();
   if(!gp){pad.x=0;pad.press=false;return}
-  const B=i=>i>=0&&!!(gp.buttons[i]&&gp.buttons[i].pressed),press=i=>B(i)&&!pad.prev[i];
-  if(padWait){ // assigning: the next button pressed goes to this move
-    for(let i=0;i<gp.buttons.length;i++){
-      if(i===9||i===14||i===15||!press(i))continue;
-      for(const k in PADMAP)if(PADMAP[k]===i)PADMAP[k]=-1; // a button does one move only
-      PADMAP[padWait]=i;SET.pad=Object.assign({},PADMAP);saveSet();padWait=null;
+  pf++;
+  const B=i=>!!(gp.buttons[i]&&gp.buttons[i].pressed),press=i=>B(i)&&!pad.prev[i];
+  const NB=gp.buttons.length,anyDown=()=>{for(let i=0;i<NB;i++)if(i!==9&&B(i))return true;return false};
+  const lt=document.getElementById('padLive');
+  if(padWait){ // recording: collect every button pressed, save when all are let go
+    for(let i=0;i<NB;i++)if(press(i)&&i!==9&&i!==14&&i!==15&&!padRec.includes(i))padRec.push(i);
+    if(lt)lt.textContent=padRec.length?'Recording: '+comboName(padRec)+' (let go to save)':'Press one button, or hold several together…';
+    if(padRec.length&&!anyDown()){
+      for(const k in PADMAP)if(k!==padWait&&sameCombo(PADMAP[k],padRec))PADMAP[k]=[]; // one move per combination
+      PADMAP[padWait]=padRec.slice();savePad();padWait=null;padRec=[];
       if(document.getElementById('padmapPage'))showPadMap();
-      break;
     }
     pad.prev=gp.buttons.map(b=>b.pressed);return;
   }
   const ax=gp.axes[0]||0;
   pad.x=(Math.abs(ax)>0.25?ax:0)+(B(14)?-1:0)+(B(15)?1:0);
-  if(B(PADMAP.fake))buf.fake=4;
-  pad.press=B(PADMAP.press);
-  let any=false;
-  for(const k of['punch','blitz','kick','head','def','step','lbf','hbf','back','dbf'])if(press(PADMAP[k])){buf[k]=8;any=true}
+  const pc=PADMAP.press;pad.press=pc.length>0&&pc.every(B);
+  let any=false;const fire=k=>{if(k!=='press'){buf[k]=8;any=true}};
+  for(let i=0;i<NB;i++)if(press(i)){pT[i]=pf;pUsed[i]=false;pPend.add(i)}
+  // combinations first (bigger ones win): all their buttons down, pressed close together
+  const combos=Object.keys(PADMAP).filter(k=>PADMAP[k].length>1).sort((a,b)=>PADMAP[b].length-PADMAP[a].length);
+  for(const k of combos){
+    const c=PADMAP[k];
+    if(c.every(B)&&c.every(b=>!pUsed[b]&&pf-(pT[b]||-99)<=8)){fire(k);c.forEach(b=>{pUsed[b]=true;pPend.delete(b)})}
+  }
+  // single buttons: fire at once, or after a short wait if the button is also part of a combination
+  for(const i of[...pPend]){
+    const inCombo=combos.some(k=>PADMAP[k].includes(i));
+    if(!inCombo||pf-pT[i]>=5||!B(i)){
+      pPend.delete(i);
+      if(!pUsed[i]){pUsed[i]=true;for(const k in PADMAP)if(PADMAP[k].length===1&&PADMAP[k][0]===i)fire(k)}
+    }
+  }
   if(any)initAudio();
   // right stick works like the phone's kick stick
   const rx=gp.axes[2]||0,ry=gp.axes[3]||0,m=Math.hypot(rx,ry);
@@ -182,7 +204,6 @@ function pollPad(){
     else if(state==='end'&&mode==='host'&&findPeer('guest'))startOnlineMatch();
   }
   // live button test on the Controller buttons page
-  const lt=document.getElementById('padLive');
   if(lt){const down=[];gp.buttons.forEach((b,i)=>{if(b.pressed)down.push(padName(i))});lt.textContent=down.length?'Pressing: '+down.join(' + '):'Press any button to test it.'}
   pad.prev=gp.buttons.map(b=>b.pressed);
 }
@@ -385,6 +406,8 @@ function handleButtons(f){
   else if(buf.hbf>0&&startAttack(f,'hbf'))buf.hbf=0;
   else if(buf.dbf>0&&startAttack(f,'dbf'))buf.dbf=0;
   else if(buf.back>0&&startAttack(f,'back'))buf.back=0;
+  else if(buf.fakeP>0&&startAttack(f,'fakeP'))buf.fakeP=0;
+  else if(buf.fakeK>0&&startAttack(f,'fakeK'))buf.fakeK=0;
 }
 function advance(f){
   if(f.flash>0)f.flash--;
@@ -672,7 +695,7 @@ function guestUpdate(){
   }else if(state==='break')moveFighter(CPU,0);
   advance(CPU);separate();
   if(CPU.state==='idle')CPU.facing=P1.x>CPU.x?1:-1;
-  if(buf.punch>0)buf.punch--;if(buf.kick>0)buf.kick--;if(buf.def>0)buf.def--;if(buf.fake>0)buf.fake--;if(buf.blitz>0)buf.blitz--;if(buf.head>0)buf.head--;if(buf.step>0)buf.step--;if(buf.lbf>0)buf.lbf--;if(buf.hbf>0)buf.hbf--;if(buf.back>0)buf.back--;if(buf.dbf>0)buf.dbf--;
+  if(buf.punch>0)buf.punch--;if(buf.kick>0)buf.kick--;if(buf.def>0)buf.def--;if(buf.fake>0)buf.fake--;if(buf.blitz>0)buf.blitz--;if(buf.head>0)buf.head--;if(buf.step>0)buf.step--;if(buf.lbf>0)buf.lbf--;if(buf.hbf>0)buf.hbf--;if(buf.back>0)buf.back--;if(buf.dbf>0)buf.dbf--;if(buf.fakeP>0)buf.fakeP--;if(buf.fakeK>0)buf.fakeK--;
   mroom.presence({me:[Math.round(CPU.x*10)/10,CPU.state==='attack'?1:CPU.state==='press'?2:0,CPU.mk||'',CPU.t,CPU.ac,CPU.facing,round_g(),Math.round(CPU.walk*100)/100,CPU.pushT!=null&&frame-CPU.pushT<15?1:0]}).catch(()=>{});
 }
 const round_g=()=>seenRound;
@@ -785,11 +808,11 @@ function showSettings(){
 }
 function showPadMap(){
   state='menu';
-  const row=([k,label])=>`<div class="set"><span style="text-align:left">${label}</span><button class="tog${padWait===k?' wait':''}" data-assign="${k}" style="min-width:120px">${padWait===k?'Press a button…':padName(PADMAP[k])}</button></div>`;
+  const row=([k,label])=>`<div class="set"><span style="text-align:left">${label}</span><button class="tog${padWait===k?' wait':''}" data-assign="${k}" style="min-width:130px">${padWait===k?'Press…':comboName(PADMAP[k])}</button></div>`;
   overlay.innerHTML=`<p class="big" style="color:#c9a6ff" id="padmapPage">CONTROLLER</p>
     <p class="how" id="padStat"></p>
     <p class="how" id="padLive" style="margin:0;color:#ffd25a">Press any button to test it.</p>
-    <p class="how">Tap a move, then press the button you want for it on the controller.</p>
+    <p class="how">Tap a move, then press one button, or hold two or more together for a combination (like RB + B), and let go.</p>
     ${PADACT.map(row).join('')}
     <p class="how">Left stick or d-pad left and right always move. Right stick flicks: forward side kick, up head kick, back defensive kick. Menu (Start) starts a fight.</p>
     <div class="row"><button class="pick grey" data-padreset="1">Reset to default</button><button class="pick setb" data-settings="1">Done</button></div>`;
@@ -816,7 +839,7 @@ function showRules(){
     </ul>
     <h2 class="sec">Controls</h2>
     <ul class="rules">${keysList}</ul>
-    ${isTouch?'':'<p class="how">Controller: left stick moves. '+PADACT.map(([k,l])=>padName(PADMAP[k])+' '+l.replace(/ \(.*\)/,'').toLowerCase()).join(', ')+'. Change them in Settings.</p>'}
+    ${isTouch?'':'<p class="how">Controller: left stick moves. '+PADACT.map(([k,l])=>comboName(PADMAP[k])+' '+l.replace(/ \(.*\)/,'').toLowerCase()).join(', ')+'. Change them in Settings.</p>'}
     <button class="pick grey" data-menu="1">Back</button>`;
   overlay.classList.remove('hide');
   overlay.scrollTop=0;
@@ -836,8 +859,8 @@ overlay.addEventListener('click',e=>{
   else if(ds.cpu)showLevels();
   else if(ds.settings){padWait=null;showSettings()}
   else if(ds.padmap)showPadMap();
-  else if(ds.assign){padWait=padWait===ds.assign?null:ds.assign;showPadMap()}
-  else if(ds.padreset){padWait=null;Object.assign(PADMAP,PADDEF);SET.pad=Object.assign({},PADMAP);saveSet();showPadMap()}
+  else if(ds.assign){padWait=padWait===ds.assign?null:ds.assign;padRec=[];showPadMap()}
+  else if(ds.padreset){padWait=null;padRec=[];for(const k in PADDEF)PADMAP[k]=PADDEF[k].slice();savePad();showPadMap()}
   else if(ds.rules)showRules();
   else if(ds.toggle){SET[ds.toggle]=!SET[ds.toggle];b.setAttribute('aria-pressed',SET[ds.toggle]);b.textContent=SET[ds.toggle]?'On':'Off';saveSet()}
   else if(ds.d)newGame(ds.d);
@@ -895,7 +918,7 @@ function update(){
     stTimer--;
     if(stTimer<=0){if(pendingEnd)endGame();else resetPositions(45)}
   }
-  if(buf.punch>0)buf.punch--;if(buf.kick>0)buf.kick--;if(buf.def>0)buf.def--;if(buf.fake>0)buf.fake--;if(buf.blitz>0)buf.blitz--;if(buf.head>0)buf.head--;if(buf.step>0)buf.step--;if(buf.lbf>0)buf.lbf--;if(buf.hbf>0)buf.hbf--;if(buf.back>0)buf.back--;if(buf.dbf>0)buf.dbf--;
+  if(buf.punch>0)buf.punch--;if(buf.kick>0)buf.kick--;if(buf.def>0)buf.def--;if(buf.fake>0)buf.fake--;if(buf.blitz>0)buf.blitz--;if(buf.head>0)buf.head--;if(buf.step>0)buf.step--;if(buf.lbf>0)buf.lbf--;if(buf.hbf>0)buf.hbf--;if(buf.back>0)buf.back--;if(buf.dbf>0)buf.dbf--;if(buf.fakeP>0)buf.fakeP--;if(buf.fakeK>0)buf.fakeK--;
 }
 function updateFx(){
   for(let i=parts.length-1;i>=0;i--){const p=parts[i];p.x+=p.vx;p.y+=p.vy;p.vy+=0.2;p.vx*=0.95;if(--p.life<=0)parts.splice(i,1)}
