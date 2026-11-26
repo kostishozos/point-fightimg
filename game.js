@@ -199,7 +199,7 @@ const MOVES={
   // big jump back off both legs, waist pulled back in the air, land in stance; a reverse punch misses him in the air
   back:{name:'JUMP BACK',startup:2,active:14,recovery:8,reach:0,pts:0,noHit:1},
   // same jump back with a backfist to the head while still in the air
-  dbf:{name:'DEFENSIVE BACKFIST',startup:6,active:9,recovery:9,reach:120,pts:1,hy:112}
+  dbf:{name:'DEFENSIVE BACKFIST',startup:6,active:9,recovery:9,reach:150,pts:1,hy:112}
 };
 const POSE={
   // wide, low side-on stance
@@ -387,7 +387,7 @@ function moveFighter(f,dir){
       if(f.t<m.startup)f.x+=m.step/m.startup*f.facing;
       else if(f.t>=m.startup+m.active)f.x-=m.step/m.recovery*f.facing;
     }else if(f.mk==='back'||f.mk==='dbf'){
-      if(f.t>=1&&f.t<16)f.x-=5.5*f.facing; // about a metre back through the air
+      if(f.t>=1&&f.t<16)f.x-=3*f.facing; // about half a metre back, close enough to counter
     }else if(f.mk==='step'){
       if(f.t<17)f.x+=m.lunge*f.facing;
     }else if(f.mk==='def'){
