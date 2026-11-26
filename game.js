@@ -17,6 +17,12 @@ function resize(){
   ctx.setTransform(W*s*dpr/W,0,0,H*s*dpr/H,0,0);
 }
 addEventListener('resize',resize);resize();
+/* ---------- settings (saved on this device) ---------- */
+const SET={bright:100,vol:80,shake:true,rumble:true};
+try{Object.assign(SET,JSON.parse(localStorage.getItem('pf-settings')||'{}'))}catch(e){}
+function saveSet(){try{localStorage.setItem('pf-settings',JSON.stringify(SET))}catch(e){}}
+function applySet(){cv.style.filter=SET.bright===100?'':'brightness('+SET.bright/100+')'}
+applySet();
 
 /* ---------- sound ---------- */
 let ac=null,noiseBuf=null;
@@ -29,19 +35,21 @@ function initAudio(){
   }catch(e){ac=null}
 }
 function tone(type,f1,f2,dur,vol){
+  vol*=SET.vol/100;
   const t=ac.currentTime,o=ac.createOscillator(),g=ac.createGain();
   o.type=type;o.frequency.setValueAtTime(f1,t);o.frequency.exponentialRampToValueAtTime(f2,t+dur);
   g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(0.001,t+dur);
   o.connect(g).connect(ac.destination);o.start(t);o.stop(t+dur);
 }
 function noise(dur,vol,freq){
+  vol*=SET.vol/100;
   const t=ac.currentTime,s=ac.createBufferSource(),f=ac.createBiquadFilter(),g=ac.createGain();
   s.buffer=noiseBuf;f.type='bandpass';f.frequency.value=freq;
   g.gain.setValueAtTime(vol,t);g.gain.exponentialRampToValueAtTime(0.001,t+dur);
   s.connect(f).connect(g).connect(ac.destination);s.start(t);s.stop(t+dur);
 }
 function sfx(k){
-  if(!ac)return;
+  if(!ac||SET.vol<=0)return;
   try{
     if(k==='whoosh')noise(0.12,0.25,900);
     if(k==='hit'){tone('square',220,50,0.18,0.25);noise(0.15,0.5,1800)}
@@ -162,6 +170,7 @@ function pollPad(){
   pad.prev=gp.buttons.map(b=>b.pressed);
 }
 function rumble(){
+  if(!SET.rumble)return;
   try{const all=navigator.getGamepads?navigator.getGamepads():[];for(const g of all)if(g&&g.vibrationActuator){g.vibrationActuator.playEffect('dual-rumble',{duration:140,strongMagnitude:0.6,weakMagnitude:0.4}).catch(()=>{});break}}catch(e){}
 }
 addEventListener('gamepadconnected',()=>{const el=document.getElementById('padMsg');if(el)el.textContent='Controller connected. Press Start to fight on Normal.'});
@@ -514,7 +523,7 @@ function setDirLabels(){
 }
 function showOnline(){
   state='menu';
-  overlay.innerHTML=`<p class="big" style="color:#c9a6ff">PLAY ONLINE</p>
+  overlay.innerHTML=`<p class="big" style="color:#c9a6ff">PLAY A FRIEND</p>
     <p class="how">You and your friend both open this game. One taps <b>Create match</b> and reads out the code, the other types it and taps <b>Join</b>. The one who creates is Blue.</p>
     <div class="row"><button class="pick again" data-create="1">Create match</button></div>
     <div class="row"><input id="codeIn" maxlength="4" placeholder="CODE" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Match code"><button class="pick normal" data-join="1">Join</button></div>
@@ -714,29 +723,84 @@ function endGame(){
   overlay.innerHTML=`<p class="big" style="color:${won?'#5cc8ff':'#ff5a4a'}">${won?'YOU WIN!':'YOU LOSE'}</p>
     <p class="score">Blue ${score[0]} – ${score[1]} Red · ${diff.label}</p>
     <div class="row"><button class="pick again" data-d="${diffKey}">Rematch</button>
-    <button class="pick normal" data-menu="1">Change level</button></div>`;
+    <button class="pick normal" data-cpu="1">Change level</button></div>`;
   overlay.classList.remove('hide');
 }
 function showMenu(){
   state='menu';
   overlay.innerHTML=`<h1>POINT<br>FIGHTER</h1>
     <p class="sub">Arcade point fighting. Score a clean hit, the referee stops the fight, then you go again.</p>
-    <p class="how">${isTouch
-      ?'<b>Left stick</b> moves. <b>Right stick</b> kicks: push forward for a side kick, up for a head kick (2 points), back for a defensive kick. <b>REVERSE</b> and <b>BLITZ</b> buttons punch. <b>Double tap</b> REVERSE, or flick the right stick forward twice, to fake.'
-      :'<b>← →</b> move. <b>W</b> reverse punch, <b>E</b> blitz, <b>D</b> side kick, <b>F</b> head kick (2 points), <b>A</b> defensive kick. Press <b>1</b> together with W or D to fake. Hold <b>left Shift</b> to <b>press</b>: lead leg up, skip forward, then D or F to kick. <b>Q</b> steps in with a backfist (1 point), only against a kick: time it before a side kick extends to jump over it and counter. <b>R</b> deep step and backfist to the body (1 point): you dip under head strikes and it counters the blitz. <b>Shift+R</b> quick deep-step backfist to the head (1 point). <b>Right Shift</b> jumps back (a reverse punch misses you in the air); <b>right Shift then R</b> adds a backfist in the air (1 point, counters the reverse). A side kick thrown before a head-kicking leg lifts counters it.'}
-    Every other clean hit is 1 point. Stepping off the mat costs 1 point, getting pushed out doesn't. First to ${WIN_AT}, or most points after 60 seconds, wins.</p>
-    <p class="how" id="padMsg" style="margin:0">${pad.on?'Controller connected. Press Start to fight on Normal.':isTouch?'':'Got a game controller? Plug it in and press any button.'}</p>
-    <p class="how" style="margin:0">Fight the computer:</p>
-    <div class="row"><button class="pick easy" data-d="easy">Easy</button><button class="pick normal" data-d="normal">Normal</button><button class="pick hard" data-d="hard">Hard</button></div>
-    <div class="row" style="margin-top:6px"><button class="pick online" data-online="1">Play a friend online</button></div>`;
+    <button class="pick cpu wide" data-cpu="1">Play vs CPU</button>
+    <button class="pick online wide" data-online="1">Play online</button>
+    <button class="pick setb wide" data-settings="1">Settings</button>
+    <button class="pick rulesb wide" data-rules="1">Rules and controls</button>
+    <p class="how" id="padMsg" style="margin:6px 0 0">${pad.on?'Controller connected. Press Start to fight on Normal.':isTouch?'':'Got a game controller? Plug it in and press any button.'}</p>`;
   overlay.classList.remove('hide');
 }
+function showLevels(){
+  state='menu';
+  overlay.innerHTML=`<p class="big" style="color:#ffd25a">CHOOSE LEVEL</p>
+    <p class="how">Fight the computer.</p>
+    <button class="pick easy wide" data-d="easy">Easy</button>
+    <button class="pick normal wide" data-d="normal">Normal</button>
+    <button class="pick hard wide" data-d="hard">Hard</button>
+    <button class="pick grey" data-menu="1" style="margin-top:8px">Back</button>`;
+  overlay.classList.remove('hide');
+}
+function showSettings(){
+  state='menu';
+  const tog=k=>`<button class="tog" data-toggle="${k}" aria-pressed="${SET[k]}">${SET[k]?'On':'Off'}</button>`;
+  overlay.innerHTML=`<p class="big" style="color:#c9a6ff">SETTINGS</p>
+    <label class="set">Brightness <span><input type="range" min="50" max="150" step="5" value="${SET.bright}" data-set="bright"> <output id="o-bright">${SET.bright}%</output></span></label>
+    <label class="set">Sound <span><input type="range" min="0" max="100" step="5" value="${SET.vol}" data-set="vol"> <output id="o-vol">${SET.vol}%</output></span></label>
+    <div class="set">Screen shake on hits ${tog('shake')}</div>
+    <div class="set">Controller vibration ${tog('rumble')}</div>
+    <p class="how">Settings are saved on this device.</p>
+    <button class="pick grey" data-menu="1">Back</button>`;
+  overlay.classList.remove('hide');
+}
+function showRules(){
+  state='menu';
+  const keysList=isTouch
+    ?`<li><b>Left stick</b> moves.</li><li><b>Right stick</b>: forward side kick, up head kick, back defensive kick.</li><li><b>REVERSE</b> and <b>BLITZ</b> buttons punch. Double tap REVERSE, or flick the right stick forward twice, to fake.</li>`
+    :`<li><b>← →</b> move</li><li><b>W</b> reverse punch · <b>E</b> blitz</li><li><b>D</b> side kick · <b>F</b> head kick · <b>A</b> defensive side kick</li><li><b>1</b> together with W or D: fake</li><li>Hold <b>left Shift</b>: press (lead leg up, skip forward), then D or F to kick</li><li><b>Q</b> step in with a backfist, only against a kick</li><li><b>R</b> deep step, backfist to the body · <b>Shift+R</b> backfist to the head</li><li><b>Right Shift</b> jump back · <b>right Shift then R</b> defensive backfist</li>`;
+  overlay.innerHTML=`<p class="big" style="color:#ffd25a">RULES</p>
+    <ul class="rules">
+      <li>A clean hit stops the fight: <b>1 point</b>, a <b>head kick 2 points</b>.</li>
+      <li>Both land together: <b>CLASH</b>, no point, back to the start.</li>
+      <li>Stepping off the mat: <b>−1</b>. Pushed off by the opponent: <b>PUSH</b>, no point.</li>
+      <li>First to <b>${WIN_AT}</b>, or most points after 60 seconds. A tie goes to golden point.</li>
+    </ul>
+    <h2 class="sec">Counters</h2>
+    <ul class="rules">
+      <li>Defensive side kick or jump-back backfist beats the reverse punch.</li>
+      <li>Backfist to the body ducks under head strikes and beats the blitz.</li>
+      <li>Step in jumps over a side kick (or a kick fake) and counters it.</li>
+      <li>A side kick thrown before a head-kicking leg lifts jams it.</li>
+    </ul>
+    <h2 class="sec">Controls</h2>
+    <ul class="rules">${keysList}</ul>
+    ${isTouch?'':'<p class="how">Controller: left stick moves, A reverse, B blitz, X side kick, Y head kick, RB defensive kick, hold LB to fake, hold LT to press, RT step in.</p>'}
+    <button class="pick grey" data-menu="1">Back</button>`;
+  overlay.classList.remove('hide');
+  overlay.scrollTop=0;
+}
 overlay.addEventListener('keydown',e=>{if(e.target.id==='codeIn'&&e.key==='Enter')joinMatch()});
+overlay.addEventListener('input',e=>{
+  const k=e.target.dataset&&e.target.dataset.set;if(!k)return;
+  SET[k]=+e.target.value;const o=document.getElementById('o-'+k);if(o)o.textContent=SET[k]+'%';
+  applySet();saveSet();
+});
+overlay.addEventListener('change',e=>{if(e.target.dataset&&e.target.dataset.set==='vol'){initAudio();sfx('hit')}});
 overlay.addEventListener('click',e=>{
   const b=e.target.closest('button');if(!b)return;
   initAudio();
   const ds=b.dataset;
   if(ds.menu){if(mroom)leaveOnline();else showMenu()}
+  else if(ds.cpu)showLevels();
+  else if(ds.settings)showSettings();
+  else if(ds.rules)showRules();
+  else if(ds.toggle){SET[ds.toggle]=!SET[ds.toggle];b.setAttribute('aria-pressed',SET[ds.toggle]);b.textContent=SET[ds.toggle]?'On':'Off';saveSet()}
   else if(ds.d)newGame(ds.d);
   else if(ds.online)showOnline();
   else if(ds.create)createMatch();
@@ -1051,7 +1115,7 @@ function bigText(t,y,size,col){
 }
 function render(){
   ctx.save();
-  if(shake)ctx.translate((Math.random()-0.5)*shake,(Math.random()-0.5)*shake);
+  if(shake&&SET.shake)ctx.translate((Math.random()-0.5)*shake,(Math.random()-0.5)*shake);
   drawArena();
   if(P1){
     // the attacker is drawn on top so the punch/kick reads clearly
