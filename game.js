@@ -477,6 +477,11 @@ function inHit(a,d){
   if(a.state!=='attack'||a.hasHit||a.jammed)return false;
   const m=a.move;if(m.fake||m.noHit||a.t<m.startup||a.t>=m.startup+m.active)return false;
   const dx=(d.x-a.x)*a.facing;
+  // head kicks only score if your flexibility reaches the opponent's head height
+  if((a.mk==='head'||a.mk==='phead')&&headOutOfReach(a,d)){
+    if(dx>0&&dx<=m.reach&&!a.evaded){a.evaded=true;addPop('TOO TALL!',d.x,GROUND-175,'#c9a6ff',28)}
+    return false;
+  }
   // leaning back for a defensive kick takes the head/body out of range
   const evade=(d.state==='attack'&&d.mk==='def'&&d.t<d.move.startup+d.move.active)?25:0;
   const reach=a.mk==='blitz'&&a.t<11?115:m.reach;
@@ -822,9 +827,17 @@ function showPadMap(){
   overlay.classList.remove('hide');padStatus();
 }
 const FIGHTERS=[
-  {name:'KONSTANTINOS CHOZOS',height:'1.85 m',main:'#1e8cff',dark:'#0b4fa8',stats:[['Kicks flex',10],['Kicks speed',9],['Punches speed',8],['Movement speed',8]]},
-  {name:'MURPHY BAILY',height:'1.77 m',main:'#e8392c',dark:'#9c1d14',stats:[['Kicks flex',8],['Kicks speed',7],['Punches speed',10],['Movement speed',9]]}
+  {name:'KONSTANTINOS CHOZOS',height:'1.85 m',heightM:1.85,flex:10,main:'#1e8cff',dark:'#0b4fa8',stats:[['Kicks flex',10],['Kicks speed',9],['Punches speed',8],['Movement speed',8]]},
+  {name:'MURPHY BAILY',height:'1.77 m',heightM:1.77,flex:8,main:'#e8392c',dark:'#9c1d14',stats:[['Kicks flex',8],['Kicks speed',7],['Punches speed',10],['Movement speed',9]]}
 ];
+// kick flexibility: your max kick height = flex * 0.115 * your own height (in metres).
+// if the opponent's head (~0.92 of their height) is higher than that, head kicks can't score on them.
+function fighterOf(f){const i=f===P1?SET.fighter:1-SET.fighter;return FIGHTERS[i]}
+function headOutOfReach(a,d){
+  if(mode!=='cpu')return false;
+  const af=fighterOf(a),df=fighterOf(d);
+  return !!(af&&df&&af.flex*0.115*af.heightM<df.heightM*0.92);
+}
 function fighterSvg(main,dark){
   // small stance-pose portrait, same style as the fighters on the mat
   return `<svg class="fig" width="70" height="90" viewBox="-60 -140 120 150" xmlns="http://www.w3.org/2000/svg">
@@ -878,6 +891,7 @@ function showRules(){
       <li>Backfist to the body ducks under head strikes and beats the blitz.</li>
       <li>Step in jumps over a side kick (or a kick fake) and counters it.</li>
       <li>A side kick thrown before a head-kicking leg lifts jams it.</li>
+      <li>Head kicks only score if your <b>Kicks flex</b> can reach the opponent's head — pick a fighter flexible enough for the tall opponent.</li>
     </ul>
     <h2 class="sec">Controls</h2>
     <ul class="rules">${keysList}</ul>
@@ -1242,7 +1256,7 @@ function render(){
   ctx.restore();
   if(!P1)return;
   drawHUD();
-  if(state==='ready')bigText(stTimer>28?'READY...':'FIGHT!',150,stTimer>28?40:56,stTimer>28?'#fff':'#ffd25a');
+  if(state==='ready')bigText(stTimer>28?'READY...':'FIGHT!',150,stTimer>28?40:56,stTimer>40?'#fff':'#ffd25a');
   if(state==='break'){bigText('STOP!',120,30,'#fff');bigText(msg,158,40,msgCol);bigText(sub,194,20,'#ffd25a')}
 }
 
