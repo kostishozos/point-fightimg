@@ -187,8 +187,8 @@ const MOVES={
   pkick:{name:'PRESS SIDE KICK',startup:4,active:8,recovery:8,reach:138,pts:1,lunge:2.4,hy:76,press:1},
   phead:{name:'PRESS HEAD KICK',startup:6,active:7,recovery:9,reach:132,pts:2,lunge:2.4,hy:120,press:1},
   pdown:{name:'',startup:0,active:0,recovery:8,reach:0,pts:0,lunge:0,noHit:1},
-  // step in: a quick low jump forward; while in the air a side kick to the body passes under him
-  step:{name:'STEP IN',startup:3,active:14,recovery:8,reach:0,pts:0,lunge:4.5,noHit:1},
+  // step in: a quick low jump forward with a backfist in the air (1 pt); a side kick to the body passes under him
+  step:{name:'STEP IN BACKFIST',startup:6,active:9,recovery:10,reach:118,pts:1,lunge:4.5,hy:116},
   def:{name:'DEFENSIVE SIDE KICK',startup:8,active:7,recovery:28,reach:146,pts:1,lunge:-1.5,hy:76}
 };
 const POSE={
@@ -240,6 +240,10 @@ const POSE={
   stepAir:{hip:[6,-62],hw:6,sh:[10,-104],sw:12,hd:[18,-120],
     fk:[30,-48],ff:[22,-22],ffa:0.3,ffl:12,bk:[-18,-46],bf:[-34,-24],bfa:-0.3,bfl:9,
     le:[30,-92],lf:[40,-106],re:[0,-86],rf:[12,-108]},
+  // backfist snapped out with the lead hand while he's in the air
+  stepFist:{hip:[8,-62],hw:5,sh:[18,-100],sw:10,hd:[28,-116],
+    fk:[30,-48],ff:[22,-22],ffa:0.3,ffl:12,bk:[-18,-46],bf:[-34,-24],bfa:-0.3,bfl:9,
+    le:[52,-106],lf:[86,-112],re:[10,-88],rf:[24,-104]},
   hurt:{hip:[-6,-58],hw:6,sh:[-18,-100],sw:12,hd:[-20,-117],
     fk:[28,-28],ff:[38,0],ffa:0,ffl:12,bk:[-34,-26],bf:[-48,0],bfa:0,bfl:7,
     le:[6,-86],lf:[14,-98],re:[-24,-86],rf:[-14,-100]}
@@ -621,7 +625,7 @@ function award(a,d){
   const ix=d.x-a.facing*8,iy=GROUND-m.hy*S;
   spawnHit(ix,iy,'+'+m.pts);
   hitSeq++;lastHit={x:ix,y:iy,t:'+'+m.pts};
-  const counter=(a.mk==='def'&&d.state==='attack'&&d.mk==='punch')||(a.counterK&&(d.mk==='head'||d.mk==='phead'));
+  const counter=(a.mk==='def'&&d.state==='attack'&&d.mk==='punch')||(a.mk==='step'&&d.state==='attack'&&(d.mk==='kick'||d.mk==='pkick'))||(a.counterK&&(d.mk==='head'||d.mk==='phead'));
   msg=(a===P1?'BLUE':'RED')+(counter?' COUNTERS!':' SCORES!');sub=(a.mk==='blitz'?(a.t<11?'BLITZ – BACKFIST':'BLITZ – DIRECT TO HEAD'):m.name)+'  +'+m.pts;msgCol=a===P1?'#5cc8ff':'#ff5a4a';
   state='break';stTimer=95;
   if(score[i]>=WIN_AT||golden)pendingEnd=true;
@@ -664,7 +668,7 @@ function showMenu(){
     <p class="sub">Arcade point fighting. Score a clean hit, the referee stops the fight, then you go again.</p>
     <p class="how">${isTouch
       ?'<b>Left stick</b> moves. <b>Right stick</b> kicks: push forward for a side kick, up for a head kick (2 points), back for a defensive kick. <b>REVERSE</b> and <b>BLITZ</b> buttons punch. <b>Double tap</b> REVERSE, or flick the right stick forward twice, to fake.'
-      :'<b>← →</b> move. <b>W</b> reverse punch, <b>E</b> blitz, <b>D</b> side kick, <b>F</b> head kick (2 points), <b>A</b> defensive kick. Press <b>1</b> together with W or D to fake. Hold <b>Shift</b> to <b>press</b>: lead leg up, skip forward, then D or F to kick. <b>Q</b> steps in: time it before a side kick extends to jump over it. A side kick thrown before a head-kicking leg lifts counters it.'}
+      :'<b>← →</b> move. <b>W</b> reverse punch, <b>E</b> blitz, <b>D</b> side kick, <b>F</b> head kick (2 points), <b>A</b> defensive kick. Press <b>1</b> together with W or D to fake. Hold <b>Shift</b> to <b>press</b>: lead leg up, skip forward, then D or F to kick. <b>Q</b> steps in with a backfist (1 point): time it before a side kick extends to jump over it and counter. A side kick thrown before a head-kicking leg lifts counters it.'}
     Every other clean hit is 1 point. Stepping off the mat costs 1 point, getting pushed out doesn't. First to ${WIN_AT}, or most points after 60 seconds, wins.</p>
     <p class="how" id="padMsg" style="margin:0">${pad.on?'Controller connected. Press Start to fight on Normal.':isTouch?'':'Got a game controller? Plug it in and press any button.'}</p>
     <p class="how" style="margin:0">Fight the computer:</p>
@@ -886,7 +890,9 @@ function getPose(f){
     }
     if(f.mk==='step'){
       if(t<3)return mix(POSE.stance,POSE.stepAir,ease(t/3));
-      if(t<17)return POSE.stepAir;
+      if(t<6)return mix(POSE.stepAir,POSE.stepFist,ease((t-3)/3));
+      if(t<15)return POSE.stepFist;
+      if(t<17)return mix(POSE.stepFist,POSE.stepAir,ease((t-15)/2));
       return mix(POSE.stepAir,POSE.stance,ease((t-17)/r));
     }
     if(f.mk==='pdown')return mix(POSE.chamber,POSE.stance,ease(t/r));
