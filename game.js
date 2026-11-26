@@ -781,6 +781,7 @@ function showMenu(){
     <button class="pick cpu wide" data-cpu="1">Play vs CPU</button>
     <button class="pick online wide" data-online="1">Play online</button>
     <button class="pick setb wide" data-settings="1">Settings</button>
+    <button class="pick fightersb wide" data-fighters="1">Fighters</button>
     <button class="pick rulesb wide" data-rules="1">Rules and controls</button>
     <p class="how" id="padMsg" style="margin:6px 0 0">${pad.on?'Controller connected. Press Start to fight on Normal.':isTouch?'':'Got a game controller? Plug it in and press any button.'}</p>`;
   overlay.classList.remove('hide');
@@ -819,6 +820,43 @@ function showPadMap(){
     <p class="how">Every button can be used, the d-pad and Menu included. The left stick always moves; d-pad left and right also move unless you give them to a move. Right stick flicks: forward side kick, up head kick, back defensive kick.</p>
     <div class="row"><button class="pick grey" data-padreset="1">Reset to default</button><button class="pick setb" data-settings="1">Done</button></div>`;
   overlay.classList.remove('hide');padStatus();
+}
+const FIGHTERS=[
+  {name:'KONSTANTINOS CHOZOS',height:'1.85 m',main:'#1e8cff',dark:'#0b4fa8',stats:[['Kicks flex',10],['Kicks speed',9],['Punches speed',8],['Movement speed',8]]},
+  {name:'MURPHY BAILY',height:'1.77 m',main:'#e8392c',dark:'#9c1d14',stats:[['Kicks flex',8],['Kicks speed',7],['Punches speed',10],['Movement speed',9]]}
+];
+function fighterSvg(main,dark){
+  // small stance-pose portrait, same style as the fighters on the mat
+  return `<svg class="fig" width="70" height="90" viewBox="-60 -140 120 150" xmlns="http://www.w3.org/2000/svg">
+    <ellipse cx="0" cy="2" rx="38" ry="6" fill="rgba(0,0,0,.35)"/>
+    <g stroke-linecap="round" stroke-linejoin="round">
+      <polyline points="-32,-28 -44,0" fill="none" stroke="${dark}" stroke-width="10"/>
+      <ellipse cx="-44" cy="0" rx="8" ry="5" fill="${dark}"/>
+      <polygon points="0,-56 -2,-100 34,-28 32,-28" fill="${main}" stroke="${main}" stroke-width="10"/>
+      <line x1="0" y1="-56" x2="-2" y2="-100" stroke="#fff" stroke-width="3"/>
+      <polyline points="8,-48 34,-28 46,0" fill="none" stroke="#1b2030" stroke-width="10"/>
+      <ellipse cx="46" cy="0" rx="9" ry="5" fill="${main}"/>
+      <circle cx="6" cy="-118" r="10" fill="#e9b48a"/>
+      <path d="M 6,-129 A 11 11 0 0 1 17,-118 L -5,-118 Z" fill="${main}"/>
+      <circle cx="12" cy="-119" r="1.6" fill="#111"/>
+      <polyline points="-2,-100 -6,-84 6,-106" fill="none" stroke="#e9b48a" stroke-width="7"/>
+      <circle cx="6" cy="-106" r="8" fill="${dark}"/>
+      <polyline points="-2,-100 26,-88 38,-102" fill="none" stroke="#e9b48a" stroke-width="7"/>
+      <circle cx="38" cy="-102" r="7.5" fill="${main}"/>
+    </g></svg>`;
+}
+function fighterCard(f){
+  const stats=f.stats.map(([k,v])=>`<div class="st"><span>${k}</span><div class="bar"><span style="width:${v*10}%"></span></div><span class="val">${v}/10</span></div>`).join('');
+  return `<div class="fcard">${fighterSvg(f.main,f.dark)}<h3>${f.name}</h3><p class="ht">Height · ${f.height}</p>${stats}<div style="clear:both"></div></div>`;
+}
+function showFighters(){
+  state='menu';
+  overlay.innerHTML=`<p class="big" style="color:#c9a6ff">FIGHTERS</p>
+    <p class="how" style="margin:0 0 6px">The roster so far. Later, these ratings will change how each fighter actually plays.</p>
+    ${FIGHTERS.map(fighterCard).join('')}
+    <button class="pick grey" data-menu="1" style="margin-top:6px">Back</button>`;
+  overlay.classList.remove('hide');
+  overlay.scrollTop=0;
 }
 function showRules(){
   state='menu';
@@ -864,6 +902,7 @@ overlay.addEventListener('click',e=>{
   else if(ds.assign){padWait=padWait===ds.assign?null:ds.assign;padRec=[];showPadMap()}
   else if(ds.padreset){padWait=null;padRec=[];for(const k in PADDEF)PADMAP[k]=PADDEF[k].slice();savePad();showPadMap()}
   else if(ds.rules)showRules();
+  else if(ds.fighters)showFighters();
   else if(ds.toggle){SET[ds.toggle]=!SET[ds.toggle];b.setAttribute('aria-pressed',SET[ds.toggle]);b.textContent=SET[ds.toggle]?'On':'Off';saveSet()}
   else if(ds.d)newGame(ds.d);
   else if(ds.online)showOnline();
