@@ -219,7 +219,7 @@ function pollPad(){
 }
 function padStatus(){
   const el=document.getElementById('padMsg');
-  if(el)el.textContent=pad.on?'Controller connected. Press Start to fight on Normal.':(isTouch?'':'Got a game controller? Plug it in and press any button.');
+  if(el){el.classList.toggle('blink',pad.on);el.textContent=pad.on?'PRESS START':(isTouch?'':'Got a game controller? Plug it in and press any button.')}
   const s=document.getElementById('padStat');
   if(s){s.textContent=pad.on?'Connected: '+pad.id:'No controller found. Plug it in, then press any button on it.';s.style.color=pad.on?'#7be3a0':'#ff9d8a'}
 }
@@ -741,7 +741,7 @@ function setDirLabels(){
 }
 function showOnline(){
   state='menu';
-  overlay.innerHTML=`<p class="big" style="color:#c9a6ff">PLAY A FRIEND</p>
+  overlay.innerHTML=`<p class="big" style="color:#7fc8ff">PLAY A FRIEND</p>
     <p class="how">You and your friend both open this game. One taps <b>Create match</b> and reads out the code, the other types it and taps <b>Join</b>. The one who creates is Blue.</p>
     <div class="row"><button class="pick again" data-create="1">Create match</button></div>
     <div class="row"><input id="codeIn" maxlength="4" placeholder="CODE" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Match code"><button class="pick normal" data-join="1">Join</button></div>
@@ -925,13 +925,17 @@ function award(a,d){
   // streaks: the scorer adds his points (a finisher starts it again), the other fighter's streak and finisher are gone
   streak[1-i]=0;finReady[1-i]=false;
   if(!m.fin){streak[i]+=m.pts;if(streak[i]>=3&&hasFin(a)&&!finReady[i]){finReady[i]=true;addPop('FINISHER READY',a.x,GROUND-200,'#ffd25a',26)}}
-  // perfect finisher: opponent close and coming forward, kick lands in its first 2 frames -> K.O.
-  const perfect=m.fin&&!a.frontOnly&&Math.abs(d.x-a.x)<=118&&coming(d,a)&&a.t-m.startup<=1;
+  // K.O.: jump spinning back kick: opponent close and coming forward, landed in its first 2 frames.
+  // spinning sweep: his standing leg while he kicks = K.O.; both legs = most likely K.O. (8 in 10);
+  // only the front leg = the finisher still counts (5 points, he goes down) but never a K.O.
+  const perfect=m.fin&&(a.mk==='sweep'
+    ?!a.frontOnly&&(oneLeg(d)||Math.random()<0.8)
+    :Math.abs(d.x-a.x)<=118&&coming(d,a)&&a.t-m.startup<=1);
   hitstop=7;
   const ix=d.x-a.facing*8,iy=GROUND-m.hy*S;
   const legSwept=a.mk==='sweep'&&oneLeg(d),midSwept=a.mk==='sweep'&&!legSwept&&sweepBeats(d);
   const counter=legSwept||midSwept||(a.mk==='def'&&d.state==='attack'&&d.mk==='punch')||(a.mk==='dbf'&&d.state==='attack'&&d.mk==='punch')||(a.mk==='lbf'&&d.state==='attack'&&d.mk==='blitz')||(a.mk==='step'&&d.state==='attack'&&(d.mk==='kick'||d.mk==='pkick'||d.mk==='fakeK'))||(a.counterK&&(d.mk==='head'||d.mk==='phead'));
-  msg=(a===P1?'BLUE':'RED')+(perfect?' WINS BY K.O.!':counter?' COUNTERS!':' SCORES!');sub=(a.frontOnly?'SWEPT THE FRONT LEG':legSwept?'SWEPT THE STANDING LEG':midSwept?'SWEPT MID-ATTACK':a.mk==='blitz'?(a.t<11?'BLITZ – BACKFIST':'BLITZ – DIRECT TO HEAD'):m.name)+'  +'+m.pts;msgCol=a===P1?'#5cc8ff':'#ff5a4a';
+  msg=(a===P1?'BLUE':'RED')+(perfect?' WINS BY K.O.!':counter?' COUNTERS!':' SCORES!');sub=(a.frontOnly?'SWEPT THE FRONT LEG':legSwept?'SWEPT THE STANDING LEG':midSwept?'SWEPT MID-ATTACK':a.mk==='sweep'?'SWEPT BOTH LEGS':a.mk==='blitz'?(a.t<11?'BLITZ – BACKFIST':'BLITZ – DIRECT TO HEAD'):m.name)+'  +'+m.pts;msgCol=a===P1?'#5cc8ff':'#ff5a4a';
   // a counter (or a dodge just before the hit) shows its headline first; the points come in a beat later
   const dl=counter||frame-lastEvadeF<40?34:0;
   spawnHit(ix,iy,'+'+m.pts,dl);
@@ -1016,13 +1020,11 @@ function endGame(){
 function showMenu(){
   state='menu';
   overlay.innerHTML=`<h1>POINT<br>FIGHTER</h1>
-    <p class="sub">Arcade point fighting. Score a clean hit, the referee stops the fight, then you go again.</p>
-    <button class="pick cpu wide" data-cpu="1">Play vs CPU</button>
-    <button class="pick online wide" data-online="1">Play online</button>
-    <button class="pick setb wide" data-settings="1">Settings</button>
-    <button class="pick fightersb wide" data-fighters="1">Fighters</button>
-    <button class="pick rulesb wide" data-rules="1">Rules and controls</button>
-    <p class="how" id="padMsg" style="margin:6px 0 0">${pad.on?'Controller connected. Press Start to fight on Normal.':isTouch?'':'Got a game controller? Plug it in and press any button.'}</p>`;
+    <p class="tag">KICKBOXING · FIRST TO 10</p>
+    <button class="pick cpu wide" data-cpu="1">Fight</button>
+    <button class="pick online wide" data-online="1">Play a friend</button>
+    <div class="row" style="margin-top:6px"><button class="pick fightersb" data-fighters="1">Fighters</button><button class="pick rulesb" data-rules="1">Rules</button><button class="pick setb" data-settings="1">Settings</button></div>
+    <p class="how${pad.on?' blink':''}" id="padMsg" style="margin:10px 0 0">${pad.on?'PRESS START':isTouch?'':'Got a game controller? Plug it in and press any button.'}</p>`;
   overlay.classList.remove('hide');
 }
 function showLevels(){
@@ -1040,7 +1042,7 @@ function showLevels(){
 function showSettings(){
   state='menu';
   const tog=k=>`<button class="tog" data-toggle="${k}" aria-pressed="${SET[k]}">${SET[k]?'On':'Off'}</button>`;
-  overlay.innerHTML=`<p class="big" style="color:#c9a6ff">SETTINGS</p>
+  overlay.innerHTML=`<p class="big" style="color:#7fc8ff">SETTINGS</p>
     <label class="set">Brightness <span><input type="range" min="50" max="150" step="5" value="${SET.bright}" data-set="bright"> <output id="o-bright">${SET.bright}%</output></span></label>
     <label class="set">Sound <span><input type="range" min="0" max="100" step="5" value="${SET.vol}" data-set="vol"> <output id="o-vol">${SET.vol}%</output></span></label>
     <div class="set">Screen shake on hits ${tog('shake')}</div>
@@ -1053,7 +1055,7 @@ function showSettings(){
 function showPadMap(){
   state='menu';
   const row=([k,label])=>`<div class="set"><span style="text-align:left">${label}</span><button class="tog${padWait===k?' wait':''}" data-assign="${k}" style="min-width:130px">${padWait===k?'Press…':comboName(PADMAP[k])}</button></div>`;
-  overlay.innerHTML=`<p class="big" style="color:#c9a6ff" id="padmapPage">CONTROLLER</p>
+  overlay.innerHTML=`<p class="big" style="color:#7fc8ff" id="padmapPage">CONTROLLER</p>
     <p class="how" id="padStat"></p>
     <p class="how" id="padLive" style="margin:0;color:#ffd25a">Press any button to test it.</p>
     <p class="how">Tap a move, then press one button, or hold two or more together for a combination (like RB + B), and let go.</p>
@@ -1129,7 +1131,7 @@ function fighterCard(f,i){
 }
 function showFighters(){
   state='menu';
-  overlay.innerHTML=`<p class="big" style="color:#c9a6ff">FIGHTERS</p>
+  overlay.innerHTML=`<p class="big" style="color:#7fc8ff">FIGHTERS</p>
     <p class="how" style="margin:0 0 6px">Pick who you are (<b>Play as</b>) and who the computer is (<b>Fight him</b>). Online, your friend picks his own fighter.</p>
     ${FIGHTERS.map((f,i)=>fighterCard(f,i)).join('')}
     <button class="pick grey" data-menu="1" style="margin-top:6px">Back</button>`;
@@ -1161,9 +1163,9 @@ function showRules(){
     <ul class="rules">
       <li>Some fighters have a finisher. Score <b>3 points in a row</b> without the opponent scoring to unlock it (the pips under your stamina bar).</li>
       <li>It's worth <b>5 points</b>, and you get one use. If the opponent scores, or you step out, it's gone.</li>
-      <li><b>K.O.</b>: land it in its first moment on an opponent who's close and coming forward, and you win the match on the spot.</li>
+      <li><b>K.O.</b> wins the match on the spot. Konstantinos: land it in its first moment on an opponent who's close and coming forward. Miltiadis: see below.</li>
       <li>Konstantinos: <b>jump spinning back kick</b> to the head. The body backfist still ducks under it. On a K.O. he finishes with a kick to the head of the kneeling opponent.</li>
-      <li>Miltiadis: <b>spinning sweep</b> with the back leg. The opponent goes down. Ducking doesn't help; jumping (step in, jump back) does. It beats a kick (takes the standing leg), a reverse punch and a blitz. At the very edge of its range it only catches the front leg: he still goes down, but it can't be a K.O. On a K.O. he jumps on the fallen opponent and punches.</li>
+      <li>Miltiadis: <b>spinning sweep</b> with the back leg. The opponent goes down. Ducking doesn't help; jumping (step in, jump back) does. It beats a kick (takes the standing leg), a reverse punch and a blitz. K.O.: his standing leg while he kicks always is; both legs usually is. At the very edge of its range it only catches the front leg: still 5 points and he goes down, but never a K.O. On a K.O. he jumps on the fallen opponent and punches.</li>
     </ul>
     <h2 class="sec">Fighter stats (1-99)</h2>
     <ul class="rules">
@@ -1743,16 +1745,20 @@ function drawFlyingHeadgear(){
 }
 function drawHUD(){
   ctx.textBaseline='middle';
+  // slanted arcade plates (hard drop shadow, no rounded corners)
+  const plate=(x,y,w,h,k)=>{ctx.beginPath();ctx.moveTo(x+k,y);ctx.lineTo(x+w,y);ctx.lineTo(x+w-k,y+h);ctx.lineTo(x,y+h);ctx.closePath()};
   const box=(x,col,label,val)=>{
-    ctx.fillStyle=col;ctx.beginPath();ctx.roundRect(x,12,150,58,10);ctx.fill();
-    ctx.fillStyle='rgba(255,255,255,.85)';ctx.font='700 14px Barlow, system-ui';ctx.textAlign='left';ctx.fillText(label,x+12,30);
-    ctx.fillStyle='#fff';ctx.font='34px Bungee, system-ui';ctx.textAlign='right';ctx.fillText(val,x+140,44);
+    ctx.fillStyle='#000';plate(x+4,16,150,58,12);ctx.fill();
+    ctx.fillStyle=col;plate(x,12,150,58,12);ctx.fill();
+    ctx.fillStyle='rgba(0,0,0,.25)';plate(x+3,52,144,18,4);ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,.92)';ctx.font='12px Bungee, system-ui';ctx.textAlign='left';ctx.fillText(label,x+16,28);
+    ctx.fillStyle='#fff';ctx.font='34px Bungee, system-ui';ctx.textAlign='right';ctx.fillText(val,x+132,46);
   };
   const meName=FIGHTERS[SET.fighter]?FIGHTERS[SET.fighter].name.split(' ')[0]:'YOU';
   const foeName=FIGHTERS[oppIdx()]?FIGHTERS[oppIdx()].name.split(' ')[0]:'CPU';
   const nm=i=>i!=null&&FIGHTERS[i]?FIGHTERS[i].name.split(' ')[0]:'FRIEND';
-  const blueLab=mode==='cpu'?'BLUE · '+meName:'BLUE · '+nm(netFi[0]);
-  const redLab=mode==='cpu'?'RED · '+foeName:'RED · '+nm(netFi[1]);
+  const blueLab=mode==='cpu'?meName:nm(netFi[0]);
+  const redLab=mode==='cpu'?foeName:nm(netFi[1]);
   const shown=[score[0],score[1]];
   if(state==='break'&&stTimer>subAt&&lastAward)shown[lastAward.i]-=lastAward.pts;
   box(14,'#1468d8',blueLab,shown[0]);box(W-164,'#c82a1e',redLab,shown[1]);
@@ -1769,7 +1775,8 @@ function drawHUD(){
     if(finReady[i]){ctx.globalAlpha=0.65+0.35*Math.sin(frame*0.2);ctx.fillStyle='#ffd25a';ctx.font='12px Bungee, system-ui';ctx.textAlign=i?'right':'left';ctx.fillText('FINISHER READY',i?x+150:x,94);ctx.globalAlpha=1;return}
     for(let k=0;k<3;k++){ctx.fillStyle=k<Math.min(3,streak[i])?'#ffd25a':'rgba(255,255,255,.22)';ctx.beginPath();ctx.arc((i?x+150-6-k*14:x+6+k*14),93,4.5,0,7);ctx.fill()}
   });
-  ctx.fillStyle='rgba(0,0,0,.55)';ctx.beginPath();ctx.roundRect(W/2-62,12,124,58,10);ctx.fill();
+  ctx.fillStyle='#000';plate(W/2-58,16,124,58,12);ctx.fill();ctx.fillStyle='#141a30';plate(W/2-62,12,124,58,12);ctx.fill();
+  ctx.strokeStyle='#ffd25a';ctx.lineWidth=2;plate(W/2-62,12,124,58,12);ctx.stroke();
   ctx.textAlign='center';
   if(golden){ctx.fillStyle='#ffd25a';ctx.font='16px Bungee, system-ui';ctx.fillText('GOLDEN',W/2,32);ctx.fillText('POINT',W/2,52)}
   else{const sec=Math.ceil(timer/60);ctx.fillStyle=sec<=10?'#ff6b5a':'#fff';ctx.font='34px Bungee, system-ui';ctx.fillText(sec,W/2,44)}
