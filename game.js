@@ -208,8 +208,17 @@ function pollPad(){
     else if(Math.sign(rx)===fwd)buf.kick=8;
     else buf.def=8;
   }
+  if(document.getElementById('vsPage')&&(press(0)||press(9))){vsGo();pad.prev=gp.buttons.map(b=>b.pressed);return}
+  if(document.getElementById('selPage')){
+    if(Math.abs(ax)<0.3)pad.selArmed=true;
+    if(press(14)||(pad.selArmed&&ax<-0.6)){pad.selArmed=false;selMove(-1)}
+    else if(press(15)||(pad.selArmed&&ax>0.6)){pad.selArmed=false;selMove(1)}
+    else if(press(0)||press(9))selPick(sel.cur);
+    else if(press(1))selBack();
+    pad.prev=gp.buttons.map(b=>b.pressed);return;
+  }
   if(press(9)&&!document.getElementById('padmapPage')){
-    if(state==='menu'&&!mroom)newGame('normal');
+    if(state==='menu'&&!mroom)showSelect(diffKey);
     else if(state==='end'&&mode==='cpu')newGame(diffKey);
     else if(state==='end'&&mode==='host'&&findPeer('guest'))startOnlineMatch();
   }
@@ -237,7 +246,7 @@ addEventListener('gamepadconnected',()=>{pad.on=true;padStatus()});addEventListe
    hip turns over and the leg drives out sideways with the foot blade, body leans away. */
 const MOVES={
   // active = steps 1-2 (2 x stepLen); recovery = steps 3-4 + 6 frames to settle
-  punch:{name:'REVERSE PUNCH',startup:6,active:16,recovery:22,stepLen:8,reach:138,pts:1,lunge:3.5,hy:104},
+  punch:{name:'REVERSE PUNCH',startup:6,active:16,recovery:22,stepLen:8,reach:138,pts:1,lunge:3.5,hy:104,feintBoost:0.15},
   head:{name:'SIDE KICK TO HEAD',startup:13,active:7,recovery:20,reach:132,pts:2,lunge:2,hy:120},
   kick:{name:'SIDE KICK TO BODY',startup:10,active:8,recovery:18,reach:138,pts:1,lunge:2.2,hy:76},
   // defensive side kick: lean back and kick with the front leg while moving away,
@@ -245,7 +254,8 @@ const MOVES={
   // feints: look like the start of the real move, can't score
   // blitz: drop low, drive straight forward, backfist in the air, rear punch still in the air, land.
   // active the whole time in the air: backfist reach first, then the longer rear punch
-  blitz:{name:'BLITZ',startup:8,active:12,recovery:24,reach:125,pts:1,lunge:7,hy:116},
+  // bfReach = reach of the backfist part (first frames), reach = the rear punch after it
+  blitz:{name:'BLITZ',startup:8,active:12,recovery:24,reach:125,bfReach:115,pts:1,lunge:7,hy:116,feintBoost:0.1},
   // punch fake: a short step forward, front foot then back foot the same distance, lead hand rises.
   // a reverse punch (15%) or blitz (10%) thrown before he's settled back into stance gets a boost (see scaledMove)
   fakeP:{name:'PUNCH FAKE',startup:6,active:2,recovery:10,reach:0,pts:0,lunge:0,step:16,fake:'punch'},
@@ -568,7 +578,7 @@ function inHit(a,d){
   }
   // leaning back for a defensive kick takes the head/body out of range
   const evade=(a.mk!=='sweep'&&d.state==='attack'&&d.mk==='def'&&d.t<d.move.startup+d.move.active)?25:0;
-  const reach=a.mk==='blitz'&&a.t<11?115:m.reach;
+  const reach=a.mk==='blitz'&&a.t<11?(m.bfReach||115):m.reach;
   // dipped low for the body backfist: anything aimed at the head goes over him
   if(m.hy>=100&&d.state==='attack'&&d.mk==='lbf'&&d.t>=3&&d.t<d.move.startup+d.move.active+6){
     if(dx>0&&dx<=reach&&!a.evaded){a.evaded=true;lastEvadeF=frame;addPop('DUCKED!',d.x,GROUND-175,'#c9a6ff',30)}
@@ -621,7 +631,7 @@ function aiThink(){
     else ai.mx=adx>ai.want+10?toward:adx<ai.want-14?-toward:(Math.random()<0.3?toward:0);
   }
   if((c.x<MAT_L+60&&ai.mx<0)||(c.x>MAT_R-60&&ai.mx>0))ai.mx=toward; // don't back off the mat
-  const ag=diff.aggr*(staLvl(p)===2?1.8:1)*(staLvl(c)===2?0.5:1);
+  const ag=diff.aggr*(staLvl(p)===2?1.8:1)*(staLvl(c)===2?0.5:1)*(p.stunT>0?3:1);
   if(c.state==='idle'){
     if(canFin(c)&&adx>=95&&adx<150&&Math.random()<ag*3)startAttack(c,finMove(c));
     else if(adx<200&&adx>90&&Math.random()<ag*2.5)startAttack(c,'punch');
@@ -669,11 +679,11 @@ function masterThink(){
   if(fin==='sweep'&&adx<160&&(oneLeg(p)||(coming(p,c)&&adx<135))){startAttack(c,'sweep');return 0}
   if(fin==='fin'&&adx>=95&&adx<145&&coming(p,c)){startAttack(c,'fin');return 0}
   // distance: hover just outside his range (further when tired), drifting in and out to bait him
-  const want=(tired?175:150)+Math.sin(frame*0.05)*18;
+  const want=p.stunT>0?125:(tired?175:150)+Math.sin(frame*0.05)*18; // stunned: step right in
   ai.mx=adx>want+12?toward:adx<want-12?-toward:0;
   if((c.x<MAT_L+70&&ai.mx<0)||(c.x>MAT_R-70&&ai.mx>0))ai.mx=0; // never back off the mat
   // attack while he's not attacking and in range
-  const ag=diff.aggr*(tired?0.5:1)*(staLvl(p)?1.6:1);
+  const ag=diff.aggr*(tired?0.5:1)*(staLvl(p)?1.6:1)*(p.stunT>0?4:1);
   if(p.state!=='attack'&&Math.random()<ag){
     const r=Math.random();
     if(adx<235&&adx>=170)startAttack(c,r<0.3?'fakeP':'blitz');
@@ -706,6 +716,8 @@ const oneLeg=d=>d.state==='press'||(d.state==='attack'&&['kick','head','pkick','
 const coming=(d,a)=>(d.state==='attack'&&FWD[d.mk])||(d.state==='press')||((d.vx||0)*Math.sign(a.x-d.x)>0.8);
 const parts=[],pops=[];
 const ROUND=60*60,WIN_AT=10;
+// stunned: head kick taken from too close, or blitzed while standing still. Lasts this many frames of fighting
+const STUN_F=150,STUN_CLOSE=100;
 function spawnHit(x,y,t,delay){
   shake=10;sfx('hit');rumble();
   for(let n=0;n<22;n++){const an=Math.random()*Math.PI*2,sp=2+Math.random()*5;parts.push({x,y,vx:Math.cos(an)*sp,vy:Math.sin(an)*sp-1,life:30+Math.random()*15,col:Math.random()<0.5?'#ffd25a':'#fff'})}
@@ -816,7 +828,7 @@ function opponentLeft(){
 function makeSnap(){
   const fz=f=>[Math.round(f.x*10)/10,f.facing,f.state==='attack'?1:f.state==='press'?2:0,f.mk||'',f.t,f.flash,Math.round(f.walk*100)/100,mvT(f)];
   return{g:gameId,rd:round,s:state,st:stTimer,tm:timer,gd:golden?1:0,sc:[score[0],score[1]],f:[fz(P1),fz(CPU)],
-    ll:lastLoser===P1?0:lastLoser===CPU?1:-1,fi:[SET.fighter,netFi[1]],fr:[finReady[0]?1:0,finReady[1]?1:0],sk:[streak[0],streak[1]],ko,sw:swept,sta:[Math.round(P1.sta*10)/10,Math.round(P1.staMax*10)/10],m:msg,sb:sub,mc:msgCol,sa:subAt,la:lastAward?[lastAward.i,lastAward.pts]:null,
+    ll:lastLoser===P1?0:lastLoser===CPU?1:-1,fi:[SET.fighter,netFi[1]],fr:[finReady[0]?1:0,finReady[1]?1:0],sk:[streak[0],streak[1]],ko,sw:swept,stn:[P1.stunT||0,CPU.stunT||0],sta:[Math.round(P1.sta*10)/10,Math.round(P1.staMax*10)/10],m:msg,sb:sub,mc:msgCol,sa:subAt,la:lastAward?[lastAward.i,lastAward.pts]:null,
     h:[hitSeq,Math.round(lastHit.x),Math.round(lastHit.y),lastHit.t,lastHit.d||0],
     pp:[popSeq,lastPop.t,Math.round(lastPop.x),Math.round(lastPop.y),lastPop.c,lastPop.s]};
 }
@@ -841,6 +853,7 @@ function applySnap(sn){
   lastLoser=sn.ll===0?P1:sn.ll===1?CPU:null;
   if(Array.isArray(sn.fr))finReady=[!!sn.fr[0],!!sn.fr[1]];
   if(Array.isArray(sn.sk))streak=[num(sn.sk[0],0),num(sn.sk[1],0)];
+  if(Array.isArray(sn.stn)){P1.stunT=Math.max(0,Math.min(STUN_F,num(sn.stn[0],0)));CPU.stunT=Math.max(0,Math.min(STUN_F,num(sn.stn[1],0)))}
   ko=sn.ko===0||sn.ko===1?sn.ko:null;swept=Math.max(0,Math.min(200,num(sn.sw,0)));
   if(Array.isArray(sn.fi))netFi=[validFi(sn.fi[0]),SET.fighter];
   if(Array.isArray(sn.sta)){P1.sta=clampSta(sn.sta[0]);P1.staMax=clampSta(sn.sta[1])} // Blue's stamina comes from the host
@@ -935,12 +948,17 @@ function award(a,d){
   const ix=d.x-a.facing*8,iy=GROUND-m.hy*S;
   const legSwept=a.mk==='sweep'&&oneLeg(d),midSwept=a.mk==='sweep'&&!legSwept&&sweepBeats(d);
   const counter=legSwept||midSwept||(a.mk==='def'&&d.state==='attack'&&d.mk==='punch')||(a.mk==='dbf'&&d.state==='attack'&&d.mk==='punch')||(a.mk==='lbf'&&d.state==='attack'&&d.mk==='blitz')||(a.mk==='step'&&d.state==='attack'&&(d.mk==='kick'||d.mk==='pkick'||d.mk==='fakeK'))||(a.counterK&&(d.mk==='head'||d.mk==='phead'));
+  // stun: caught by a head kick from too close, or blitzed while standing still. Any new point clears the old stun
+  const wasStill=d.state==='idle'&&Math.abs(d.vx||0)<0.6;
+  const stun=!perfect&&!m.fin&&(((a.mk==='head'||a.mk==='phead')&&Math.abs(d.x-a.x)<STUN_CLOSE)||(a.mk==='blitz'&&wasStill));
+  a.stunT=0;d.stunT=stun?STUN_F:0;
   msg=(a===P1?'BLUE':'RED')+(perfect?' WINS BY K.O.!':counter?' COUNTERS!':' SCORES!');sub=(a.frontOnly?'SWEPT THE FRONT LEG':legSwept?'SWEPT THE STANDING LEG':midSwept?'SWEPT MID-ATTACK':a.mk==='sweep'?'SWEPT BOTH LEGS':a.mk==='blitz'?(a.t<11?'BLITZ – BACKFIST':'BLITZ – DIRECT TO HEAD'):m.name)+'  +'+m.pts;msgCol=a===P1?'#5cc8ff':'#ff5a4a';
   // a counter (or a dodge just before the hit) shows its headline first; the points come in a beat later
   const dl=counter||frame-lastEvadeF<40?34:0;
   spawnHit(ix,iy,'+'+m.pts,dl);
   hitSeq++;lastHit={x:ix,y:iy,t:'+'+m.pts,d:dl};
   lastAward={i,pts:m.pts};
+  if(stun){sub+='  · STUNNED';addPop('STUNNED!',d.x,GROUND-215,'#ff9d4a',28)}
   state='break';stTimer=95+dl;subAt=dl?95:999;
   if(perfect){ko=i;stTimer=KO_T;subAt=999;hitstop=16;shake=18;a.koX0=null}
   else if(a.mk==='sweep')swept=stTimer;
@@ -1013,7 +1031,7 @@ function endGame(){
   }
   overlay.innerHTML=`<p class="big" style="color:${won?'#5cc8ff':'#ff5a4a'}">${won?'YOU WIN!':'YOU LOSE'}</p>
     <p class="score">Blue ${score[0]} – ${score[1]} Red · ${ko!=null?'K.O. · ':''}${diff.label}</p>
-    <div class="row"><button class="pick again" data-d="${diffKey}">Rematch</button>
+    <div class="row"><button class="pick again" data-again="${diffKey}">Rematch</button>
     <button class="pick normal" data-cpu="1">Change level</button></div>`;
   overlay.classList.remove('hide');
 }
@@ -1079,25 +1097,33 @@ function fighterOf(f){
 }
 function headOutOfReach(a,d){
   const af=fighterOf(a),df=fighterOf(d);
-  return !!(af&&df&&(af.flex-(staLvl(a)===2?15:0))*0.0115*af.heightM<df.heightM*0.92); // exhausted legs lose 15 flex
+  return !!(af&&df&&(af.flex-(staLvl(a)===2?15:0))*0.0115*af.heightM<df.heightM*0.92*headLow(d)); // exhausted legs lose 15 flex
+}
+// how far his head has dropped from his own stance (1 = standing tall). Reverse punch, blitz and the body
+// backfist drop it a lot, and a dropped head is much easier to reach with a head kick.
+function headLow(d){
+  let r=1;
+  try{const p=getPose(d),st=stanceOf(d);r=Math.max(0.4,Math.min(1,p.hd[1]/st.hd[1]))}catch(e){}
+  return r<0.95?Math.pow(r,1.5):1;
 }
 // punches/kicks speed: each point above 70 shaves 0.5% off startup; each point below adds 0.5%.
 // movement speed: each point above 70 adds 0.4% to walking speed (70 = baseline).
 const PUNCH_MOVES={punch:1,blitz:1,lbf:1,hbf:1,step:1,dbf:1,fakeP:1};
 const KICK_MOVES={kick:1,head:1,pkick:1,phead:1,def:1,fakeK:1,fin:1,sweep:1};
-function moveSpdMult(f){const g=fighterOf(f);return g?(1+(g.moveSpd-70)*0.004)*(staLvl(f)===2?0.85:1):1}
+function moveSpdMult(f){const g=fighterOf(f),st=f.stunT>0?0.45:1;return (g?(1+(g.moveSpd-70)*0.004)*(staLvl(f)===2?0.85:1):1)*st}
 function scaledMove(f,k){
   const base=MOVES[k];
   const g=fighterOf(f),isK=KICK_MOVES[k],isP=PUNCH_MOVES[k],lv=staLvl(f);
   let s=base.startup,r=base.recovery,lunge=base.lunge;
   // (online the stats and stamina are each player's own fighter's)
   // thrown out of a punch fake, before he's back in stance: reverse punch 15% faster and further, blitz 10%
-  const boost=(k==='punch'||k==='blitz')&&!!f.feint,bp=k==='punch'?0.15:0.1;
+  const boost=(k==='punch'||k==='blitz')&&!!f.feint,bp=base.feintBoost||0;
   f.feint=false;
   if(boost){lunge*=1+bp;addPop('FEINT +'+Math.round(bp*100)+'%',f.x,GROUND-170,'#c9a6ff',22)}
   if(g&&(isK||isP))s=Math.max(1,Math.round(s*(1-((isK?g.kickSpd:g.punchSpd)-70)*0.005)));
   // tired: moves start 10% later and recover 15% slower; exhausted: double that
   if(lv&&!base.noHit){s=Math.round(s*(1+0.1*lv));r=Math.round(r*(1+0.15*lv))}
+  if(f.stunT>0){s=Math.round(s*1.5)+1;r=Math.round(r*1.3)} // stunned: everything is slow
   if(boost)s=Math.max(1,Math.floor(s*(1-bp))); // whole frames, rounded in his favour
   return s===base.startup&&r===base.recovery&&lunge===base.lunge?base:Object.assign({},base,{startup:s,recovery:r,lunge});
 }
@@ -1114,13 +1140,73 @@ function spendSta(f,n){if(!staOn()||!n||f.sta==null)return;const lost=Math.min(f
 function regenSta(f,mult){if(staOn()&&f.sta!=null)f.sta=Math.min(f.staMax==null?100:f.staMax,f.sta+cardioOf(f)/99*0.03*mult)}
 function drawPortraits(){ // card portraits use the same renderer as the match
   document.querySelectorAll('canvas.fig[data-i]').forEach(c=>{
-    const F=FIGHTERS[+c.dataset.i],d=2,k=d*0.44;if(!F)return;
-    c.width=84*d;c.height=100*d;
+    const F=FIGHTERS[+c.dataset.i],d=2,w=+c.dataset.w||84,h=+c.dataset.h||100,fc=c.dataset.f==='-1'?-1:1,k=d*0.44*h/100;if(!F)return;
+    c.width=w*d;c.height=h*d;
     const keep=ctx;ctx=c.getContext('2d');
-    try{ctx.setTransform(k,0,0,k,40*d,95*d-GROUND*k);drawFighter({x:0,facing:1,team:'blue',state:'idle',t:0,flash:0,walk:0,g:F,main:F.main,dark:F.dark})}
+    try{ctx.setTransform(k,0,0,k,(fc>0?0.476:0.524)*w*d,0.95*h*d-GROUND*k);drawFighter({x:0,facing:fc,team:fc>0?'blue':'red',state:'idle',t:0,flash:0,walk:0,g:F,main:F.main,dark:F.dark})}
     finally{ctx=keep}
   });
 }
+/* ---------- character select, then the VS screen ----------
+   step 0 picks you, step 1 picks the computer's fighter. Tap a fighter, or move with arrows / d-pad and confirm
+   with Enter / A. Back with Esc / B. */
+let sel={step:0,cur:0,lvl:'normal'},vsTimer=null;
+const selOff=i=>sel.step===1&&i===SET.fighter;
+function showSelect(k){
+  sel={step:0,cur:validFi(SET.fighter)??0,lvl:DIFF[k]?k:'normal'};renderSelect();
+}
+function renderSelect(){
+  state='menu';
+  const you=sel.step===0,F=FIGHTERS[sel.cur];
+  const tiles=FIGHTERS.map((f,i)=>{const off=selOff(i);
+    return `<button class="seltile${i===sel.cur?' cur':''}${off?' dis':''}" data-sel="${i}"${off?' disabled':''}><canvas class="fig" data-i="${i}" data-w="110" data-h="130" data-f="${you?1:-1}" aria-hidden="true"></canvas><span class="nm">${f.name.split(' ')[0]}</span><span class="sm">${f.height}${f.finisher?' · finisher':''}</span>${off?'<span class="tagy">YOU</span>':''}</button>`}).join('');
+  const stats=F?STAT_ROWS.map(([k,l])=>`<div class="st"><span>${l}</span><div class="bar"><span style="width:${F[k]}%"></span></div><span class="val">${F[k]}</span></div>`).join(''):'';
+  const fin=F&&F.finisher?`<p class="ht" style="color:#ffd25a;margin:6px 0 0">Finisher · ${MOVES[FIN_MOVE[F.finisher]].name.toLowerCase()}</p>`:'';
+  overlay.innerHTML=`<p class="big" id="selPage" style="color:${you?'#5cc8ff':'#ff5a4a'}">${you?'CHOOSE YOUR FIGHTER':'CHOOSE OPPONENT'}</p>
+    <p class="tag" style="margin:2px 0 4px">${DIFF[sel.lvl].label.toUpperCase()} · ${you?'PLAYER 1':'COMPUTER'}</p>
+    <div class="selgrid">${tiles}</div>
+    ${F?`<div class="fcard"><h3>${F.name}</h3><p class="ht">Height · ${F.height}</p>${stats}${fin}</div>`:''}
+    <button class="pick grey" data-selback="1">Back</button>`;
+  overlay.classList.remove('hide');drawPortraits();
+}
+function selMove(dir){
+  const n=FIGHTERS.length;let j=sel.cur;
+  for(let s=0;s<n;s++){j=(j+dir+n)%n;if(!selOff(j))break}
+  if(j!==sel.cur){sel.cur=j;renderSelect();sfx('clash')}
+}
+function selPick(i){
+  if(!FIGHTERS[i]||selOff(i))return;
+  initAudio();sfx('whoosh');
+  if(sel.step===0){SET.fighter=i;saveSet();sel.step=1;sel.cur=oppIdx();renderSelect()}
+  else{SET.opp=i;saveSet();showVS()}
+}
+function selBack(){if(sel.step===1){sel.step=0;sel.cur=SET.fighter;renderSelect()}else showLevels()}
+function showVS(){
+  const a=SET.fighter,b=oppIdx(),k=sel.lvl,nm=i=>FIGHTERS[i].name.split(' ')[0];
+  overlay.innerHTML=`<div class="vs" id="vsPage">
+      <div class="vsl"><canvas class="fig" data-i="${a}" data-w="170" data-h="210" data-f="1" aria-hidden="true"></canvas><p class="vsn" style="color:#5cc8ff">${nm(a)}</p></div>
+      <p class="vsx">VS</p>
+      <div class="vsr"><canvas class="fig" data-i="${b}" data-w="170" data-h="210" data-f="-1" aria-hidden="true"></canvas><p class="vsn" style="color:#ff5a4a">${nm(b)}</p></div>
+    </div>
+    <p class="tag">${DIFF[k].label.toUpperCase()} · FIRST TO ${WIN_AT}</p>`;
+  overlay.classList.remove('hide');drawPortraits();
+  setTimeout(()=>sfx('hit'),300);
+  clearTimeout(vsTimer);vsTimer=setTimeout(vsGo,2300);
+}
+function vsGo(){if(!document.getElementById('vsPage'))return;clearTimeout(vsTimer);vsTimer=null;newGame(sel.lvl)}
+addEventListener('keydown',e=>{
+  if(document.getElementById('vsPage')&&(e.key==='Enter'||e.key===' ')){e.preventDefault();vsGo();return}
+  if(!document.getElementById('selPage'))return;
+  if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();selMove(-1)}
+  else if(e.key==='ArrowRight'||e.key==='ArrowDown'){e.preventDefault();selMove(1)}
+  else if(e.key==='Enter'||e.key===' '){if(document.activeElement&&document.activeElement.tagName==='BUTTON')return;e.preventDefault();selPick(sel.cur)}
+  else if(e.key==='Escape'||e.key==='Backspace'){e.preventDefault();selBack()}
+});
+// mouse: hovering a fighter shows his stats
+overlay.addEventListener('pointerover',e=>{
+  if(e.pointerType!=='mouse')return;const t=e.target.closest&&e.target.closest('.seltile');
+  if(t&&!t.disabled&&+t.dataset.sel!==sel.cur){sel.cur=+t.dataset.sel;renderSelect()}
+});
 function fighterCard(f,i){
   const stats=STAT_ROWS.map(([k,l])=>`<div class="st"><span>${l}</span><div class="bar"><span style="width:${f[k]}%"></span></div><span class="val">${f[k]}</span></div>`).join('');
   const sel=SET.fighter===i,opp=!sel&&oppIdx()===i;
@@ -1157,7 +1243,13 @@ function showRules(){
       <li>Backfist to the body ducks under head strikes and beats the blitz.</li>
       <li>Step in jumps over a side kick (or a kick fake) and counters it.</li>
       <li>A side kick thrown before a head-kicking leg lifts jams it.</li>
-      <li>Punch fake: a short step forward with both feet. Before you're back in stance, a reverse punch comes out 15% faster and goes 15% further, a blitz 10%.</li>
+      <li>Punch fake: a short step forward with both feet. Before you're back in stance, a reverse punch comes out ${Math.round(MOVES.punch.feintBoost*100)}% faster and goes ${Math.round(MOVES.punch.feintBoost*100)}% further, a blitz ${Math.round(MOVES.blitz.feintBoost*100)}%.</li>
+      <li>Reverse punch, blitz and the body backfist drop your head low. For that moment a head kick reaches you even from a fighter who normally can't kick that high.</li>
+    </ul>
+    <h2 class="sec">Stunned</h2>
+    <ul class="rules">
+      <li>Caught by a head kick from too close, or blitzed while standing still: you're <b>stunned</b> (stars over your head) for the start of the next exchange.</li>
+      <li>Stunned, you walk at half speed and every move comes out slower, so you need perfect timing to avoid being scored on. It wears off after about 2.5 seconds of fighting, or when anyone scores.</li>
     </ul>
     <h2 class="sec">Finishers</h2>
     <ul class="rules">
@@ -1197,6 +1289,7 @@ overlay.addEventListener('input',e=>{
 });
 overlay.addEventListener('change',e=>{if(e.target.dataset&&e.target.dataset.set==='vol'){initAudio();sfx('hit')}});
 overlay.addEventListener('click',e=>{
+  if(e.target.closest('#vsPage')){vsGo();return}
   const b=e.target.closest('button');if(!b)return;
   initAudio();
   const ds=b.dataset;
@@ -1211,7 +1304,10 @@ overlay.addEventListener('click',e=>{
   else if(ds.pick!=null){SET.fighter=+ds.pick;saveSet();showFighters()}
   else if(ds.opp!=null){SET.opp=+ds.opp;saveSet();showFighters()}
   else if(ds.toggle){SET[ds.toggle]=!SET[ds.toggle];b.setAttribute('aria-pressed',SET[ds.toggle]);b.textContent=SET[ds.toggle]?'On':'Off';saveSet()}
-  else if(ds.d)newGame(ds.d);
+  else if(ds.d)showSelect(ds.d);
+  else if(ds.again)newGame(ds.again);
+  else if(ds.sel!=null)selPick(+ds.sel);
+  else if(ds.selback)selBack();
   else if(ds.online)showOnline();
   else if(ds.create)createMatch();
   else if(ds.join)joinMatch();
@@ -1240,6 +1336,7 @@ function update(){
         else{endGame();return}
       }
     }
+    for(const f of[P1,CPU])if(f.stunT>0)f.stunT--;
     P1.pressing=pressHeld();
     handleButtons(P1);
     moveFighter(P1,readMove());
@@ -1499,6 +1596,7 @@ function getPose(f){
   const p=mix(ST,ST,0),bob=Math.sin(frame*spdB+(f.team==='red'?1.5:0))*amp,w=Math.sin(f.walk)*5;
   for(const k of['hip','sh','hd','le','lf','re','rf'])p[k][1]+=bob;
   if(lv===2){p.lf[1]+=8;p.rf[1]+=8;p.le[1]+=4;p.re[1]+=4}
+  if(f.stunT>0){const sw=Math.sin(frame*0.09)*5;p.hd[0]+=sw*1.5;p.sh[0]+=sw;p.lf[1]+=10;p.rf[1]+=10;p.le[1]+=5;p.re[1]+=5} // dazed: swaying, guard down
   p.fk[1]+=bob*0.5;p.bk[1]+=bob*0.5;
   p.ff[0]+=w;p.fk[0]+=w*0.6;p.bf[0]+=w*0.6;p.bk[0]+=w*0.4;
   return p;
@@ -1727,9 +1825,19 @@ function drawFighter(f){
   const cs=Math.cos(spinOf(f)),sx=(cs<0?-1:1)*Math.max(0.12,Math.abs(cs)); // spinning: squash through edge-on, then turned round
   ctx.scale(f.facing*sc*sx,sc);
   drawBody(p,look,gear,gearDark);
+  if(f.stunT>0&&state!=='end'&&(f.stunT>40||(frame>>2)%2))drawStars(p.hd);
   ctx.restore();FL=false;
 }
 
+// stunned: three stars circling over his head (drawn in the fighter's own coordinates)
+function drawStars(hd){
+  for(let k=0;k<3;k++){
+    const an=frame*0.12+k*2.094,x=hd[0]+Math.cos(an)*17,y=hd[1]-20+Math.sin(an)*4.5;
+    ctx.beginPath();
+    for(let j=0;j<10;j++){const r=j%2?2.6:6.2,b=-Math.PI/2+j*Math.PI/5;ctx.lineTo(x+Math.cos(b)*r,y+Math.sin(b)*r)}
+    ctx.closePath();ctx.fillStyle='#ffd25a';ctx.fill();ctx.strokeStyle=OL;ctx.lineWidth=1.4;ctx.stroke();
+  }
+}
 // Konstantinos's K.O.: the kick sends the opponent's headgear flying (worked out from the K.O. clock, so both screens agree)
 function drawFlyingHeadgear(){
   if(ko==null||koType()!=='jsbk'||!lastLoser||(state!=='break'&&state!=='end'))return;
