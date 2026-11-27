@@ -272,7 +272,7 @@ const MOVES={
   // FINISHER (Miltiadis): spinning back sweep. He spins round low and the BACK leg hooks the opponent's foot.
   // Low, so ducking doesn't help; jumping (step in, jump back, blitz in the air) does. Same K.O. rule.
   // Timed while the opponent is kicking (standing on one leg), it takes the standing leg and beats the kick.
-  sweep:{name:'SPINNING SWEEP',startup:13,active:6,recovery:18,reach:128,pts:5,lunge:1.5,hy:8,fin:1}
+  sweep:{name:'SPINNING SWEEP',startup:10,active:7,recovery:16,reach:128,pts:5,lunge:1.5,hy:8,fin:1}
 };
 // which move each finisher is, and how its K.O. ends
 const FIN_MOVE={jsbk:'fin',sweep:'sweep'};
@@ -593,12 +593,15 @@ function inHit(a,d){
 const DIFF={
   easy:{react:24,aggr:0.006,dodge:0.15,acc:0.5,spd:0.75,label:'Easy'},
   normal:{react:14,aggr:0.013,dodge:0.35,acc:0.72,spd:0.9,label:'Normal'},
-  hard:{react:8,aggr:0.024,dodge:0.6,acc:0.9,spd:1,label:'Hard'}
+  hard:{react:8,aggr:0.024,dodge:0.6,acc:0.9,spd:1,label:'Hard'},
+  // master: reads each attack after a short human-like delay and answers with its proper counter
+  master:{react:5,aggr:0.03,dodge:0.9,acc:0.97,spd:1,label:'Master'}
 };
 let diff=DIFF.normal,diffKey='normal';
 const ai={mx:0,timer:0,want:115};
 function aiThink(){
   if(ai.hold>0){ai.hold--;return 0}
+  if(diffKey==='master')return masterThink();
   const c=CPU,p=P1,dx=p.x-c.x,adx=Math.abs(dx),toward=Math.sign(dx)||-1;
   if(--ai.timer<=0){
     ai.timer=diff.react+Math.floor(Math.random()*8);
@@ -623,6 +626,60 @@ function aiThink(){
     else if(adx>=110&&adx<165&&Math.random()<ag)startAttack(c,'head');
     else if(adx>=170&&adx<220&&Math.random()<ag*1.5)startAttack(c,'blitz');
     else if(p.state==='attack'&&p.t>=p.move.startup+p.move.active&&adx<200&&Math.random()<diff.acc*0.22)startAttack(c,adx<130?'kick':'punch');
+  }
+  return ai.mx;
+}
+
+// MASTER: sees each new attack, waits a few frames (so a fast, well-timed attack still gets through),
+// then picks the counter the rules give for it. Punishes whiffs, uses feints, saves its finisher for the
+// perfect moment, keeps its distance when tired and stays off the edge of the mat.
+function masterThink(){
+  const c=CPU,p=P1,dx=p.x-c.x,adx=Math.abs(dx),toward=Math.sign(dx)||-1;
+  const room=c.x>MAT_L+90&&c.x<MAT_R-90,tired=staLvl(c),fin=canFin(c)?finMove(c):null;
+  // its own punch fake has landed: cut it short into the boosted punch or blitz
+  if(c.state==='attack'&&c.mk==='fakeP'&&c.t>=c.move.startup){
+    if(adx<235){c.state='idle';c.move=null;c.feint=true;startAttack(c,adx>175?'blitz':'punch')}
+    return 0;
+  }
+  // a new attack from the player: decide after the reaction delay
+  if(p.state==='attack'&&p.ac!==ai.seenAc){ai.seenAc=p.ac;ai.reactAt=frame+diff.react+Math.floor(Math.random()*6);ai.readFake=Math.random()<0.6;if(Math.random()<0.15)ai.handled=p.ac} // sometimes it just doesn't read it
+  if(p.state==='attack'&&p.ac===ai.seenAc&&ai.handled!==p.ac&&frame>=ai.reactAt&&c.state==='idle'){
+    ai.handled=p.ac;
+    const m=p.move,kind=m.fake&&!ai.readFake?(m.fake==='punch'?'punch':'kick'):p.mk;
+    const km=MOVES[kind]||m,threat=adx<(km.reach||0)+(km.lunge||0)*(km.startup||0)+40;
+    if(m.fake&&ai.readFake){ai.punish=p.ac;ai.mx=0;return 0} // saw through it: hit him as it ends
+    if(threat){
+      if(kind==='punch'){startAttack(c,room&&Math.random()<0.6?'def':'dbf');return 0}
+      if(kind==='blitz'){startAttack(c,'lbf');return 0}
+      if(kind==='kick'||kind==='pkick'||kind==='fakeK'){startAttack(c,fin==='sweep'&&adx<170?'sweep':'step');return 0}
+      if(kind==='head'||kind==='phead'){startAttack(c,fin==='sweep'&&adx<170?'sweep':p.t<=4?'kick':'back');return 0}
+      if(kind==='fin'){startAttack(c,'lbf');return 0}
+      if(kind==='sweep'){startAttack(c,'back');return 0}
+      if(kind==='step'||kind==='lbf'||kind==='hbf'||kind==='dbf'){ai.mx=-toward;return ai.mx}
+    }
+  }
+  if(c.state!=='idle')return 0;
+  // punish: his move is over (or a fake it saw through), he's still recovering and close
+  const rec=p.state==='attack'&&!p.move.noHit&&(p.t>=p.move.startup+p.move.active||(p.move.fake&&ai.punish===p.ac&&p.t>=p.move.startup));
+  if(rec&&adx<235){startAttack(c,adx>175?'blitz':'punch');return 0}
+  // finisher at the right moment
+  if(fin==='sweep'&&adx<160&&(oneLeg(p)||(coming(p,c)&&adx<135))){startAttack(c,'sweep');return 0}
+  if(fin==='fin'&&adx>=95&&adx<145&&coming(p,c)){startAttack(c,'fin');return 0}
+  // distance: hover just outside his range (further when tired), drifting in and out to bait him
+  const want=(tired?175:150)+Math.sin(frame*0.05)*18;
+  ai.mx=adx>want+12?toward:adx<want-12?-toward:0;
+  if((c.x<MAT_L+70&&ai.mx<0)||(c.x>MAT_R-70&&ai.mx>0))ai.mx=0; // never back off the mat
+  // attack while he's not attacking and in range
+  const ag=diff.aggr*(tired?0.5:1)*(staLvl(p)?1.6:1);
+  if(p.state!=='attack'&&Math.random()<ag){
+    const r=Math.random();
+    if(adx<235&&adx>=170)startAttack(c,r<0.3?'fakeP':'blitz');
+    else if(adx<170&&adx>=110){
+      if(r<0.22)startAttack(c,'fakeP');
+      else if(r<0.5)startAttack(c,'punch');
+      else if(r<0.75||headOutOfReach(c,p))startAttack(c,'kick');
+      else startAttack(c,'head');
+    }
   }
   return ai.mx;
 }
@@ -970,6 +1027,8 @@ function showLevels(){
     <button class="pick easy wide" data-d="easy">Easy</button>
     <button class="pick normal wide" data-d="normal">Normal</button>
     <button class="pick hard wide" data-d="hard">Hard</button>
+    <button class="pick wide" data-d="master" style="background:#6b2bd1">Master</button>
+    <p class="how" style="margin:2px 0 0">Master reads your attacks and answers each one with its counter. Fakes, timing and finishers are how you beat it.</p>
     <button class="pick grey" data-menu="1" style="margin-top:8px">Back</button>`;
   overlay.classList.remove('hide');
 }
@@ -1387,7 +1446,7 @@ function getPose(f){
     if(f.mk==='sweep'){
       const P=sweepPoses(f);
       if(t<3)return mix(ST,P.wind,ease(t/3));
-      if(t<s-3)return mix(P.wind,P.spin,ease((t-3)/(s-6)));
+      if(t<s-3)return mix(P.wind,P.spin,ease((t-3)/Math.max(1,s-6)));
       if(t<s)return mix(P.spin,P.hit,ease((t-s+3)/3));
       if(t<s+a)return P.hit;
       return mix(P.hit,ST,ease((t-s-a)/Math.min(r,12)));
