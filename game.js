@@ -623,7 +623,7 @@ function aiThink(){
 let state='menu',stTimer=0,timer=0,golden=false,score=[0,0],hitstop=0,shake=0,frame=0;
 let msg='',sub='',msgCol='#fff',lastLoser=null,pendingEnd=false,subAt=999,lastEvadeF=-99,lastAward=null;
 // finishers: points in a row without the opponent scoring [Blue, Red]; 3 unlocks a fighter's finisher (one use)
-let streak=[0,0],finReady=[false,false],ko=null; // ko: index of the fighter who won by K.O.
+let streak=[0,0],finReady=[false,false],ko=null,swept=0; // ko: index of the fighter who won by K.O.; swept: a sweep scored without a K.O. (he goes down, no finale)
 const hasFin=f=>{const g=f&&fighterRec(f);return !!(g&&g.finisher)};
 const canFin=f=>hasFin(f)&&finReady[f===P1?0:1];
 // moves that carry the opponent forward into you
@@ -745,7 +745,7 @@ function opponentLeft(){
 function makeSnap(){
   const fz=f=>[Math.round(f.x*10)/10,f.facing,f.state==='attack'?1:f.state==='press'?2:0,f.mk||'',f.t,f.flash,Math.round(f.walk*100)/100,mvT(f)];
   return{g:gameId,rd:round,s:state,st:stTimer,tm:timer,gd:golden?1:0,sc:[score[0],score[1]],f:[fz(P1),fz(CPU)],
-    ll:lastLoser===P1?0:lastLoser===CPU?1:-1,fi:[SET.fighter,netFi[1]],fr:[finReady[0]?1:0,finReady[1]?1:0],sk:[streak[0],streak[1]],ko,sta:[Math.round(P1.sta*10)/10,Math.round(P1.staMax*10)/10],m:msg,sb:sub,mc:msgCol,sa:subAt,la:lastAward?[lastAward.i,lastAward.pts]:null,
+    ll:lastLoser===P1?0:lastLoser===CPU?1:-1,fi:[SET.fighter,netFi[1]],fr:[finReady[0]?1:0,finReady[1]?1:0],sk:[streak[0],streak[1]],ko,sw:swept,sta:[Math.round(P1.sta*10)/10,Math.round(P1.staMax*10)/10],m:msg,sb:sub,mc:msgCol,sa:subAt,la:lastAward?[lastAward.i,lastAward.pts]:null,
     h:[hitSeq,Math.round(lastHit.x),Math.round(lastHit.y),lastHit.t,lastHit.d||0],
     pp:[popSeq,lastPop.t,Math.round(lastPop.x),Math.round(lastPop.y),lastPop.c,lastPop.s]};
 }
@@ -770,7 +770,7 @@ function applySnap(sn){
   lastLoser=sn.ll===0?P1:sn.ll===1?CPU:null;
   if(Array.isArray(sn.fr))finReady=[!!sn.fr[0],!!sn.fr[1]];
   if(Array.isArray(sn.sk))streak=[num(sn.sk[0],0),num(sn.sk[1],0)];
-  ko=sn.ko===0||sn.ko===1?sn.ko:null;
+  ko=sn.ko===0||sn.ko===1?sn.ko:null;swept=Math.max(0,Math.min(200,num(sn.sw,0)));
   if(Array.isArray(sn.fi))netFi=[validFi(sn.fi[0]),SET.fighter];
   if(Array.isArray(sn.sta)){P1.sta=clampSta(sn.sta[0]);P1.staMax=clampSta(sn.sta[1])} // Blue's stamina comes from the host
   msg=String(sn.m||'').slice(0,40);sub=String(sn.sb||'').slice(0,60);
@@ -835,7 +835,7 @@ function hostReadGuest(){
 }
 
 function resetPositions(t){
-  P1.x=START_L;CPU.x=START_R;round++;
+  P1.x=START_L;CPU.x=START_R;round++;swept=0;
   for(const f of[P1,CPU]){f.state='idle';f.move=null;f.t=0;f.flash=0}
   face();lastLoser=null;ai.timer=0;ai.hold=diff.react*2; // CPU takes a beat after FIGHT!
   state='ready';stTimer=t;
@@ -867,6 +867,7 @@ function award(a,d){
   lastAward={i,pts:m.pts};
   state='break';stTimer=95+dl;subAt=dl?95:999;
   if(perfect){ko=i;stTimer=KO_T;subAt=999;hitstop=16;shake=18;a.koX0=null}
+  else if(a.mk==='sweep')swept=stTimer;
   if(score[i]>=WIN_AT||golden||perfect)pendingEnd=true;
 }
 // host side: moves both fighters through the K.O. finale (the guest gets the positions in the snapshot)
@@ -1309,6 +1310,12 @@ function drawArena(){
 function getPose(f){
   const ST=stanceOf(f);
   if(ko!=null&&lastLoser&&(state==='break'||state==='end')){const kp=koPose(f);if(kp)return kp}
+  if(swept&&f===lastLoser&&(state==='break'||state==='end')){ // swept for 5 points: falls flat, gets back up before the reset
+    const e=state==='end'?999:swept-stTimer,ST2=stanceOf(f);
+    if(e<12)return mix(POSE.hurt,POSE.down,ease(e/12));
+    if(state==='end'||stTimer>30)return POSE.down;
+    return mix(POSE.down,ST2,ease((30-stTimer)/22));
+  }
   if(state==='break'&&f===lastLoser&&stTimer>45)return POSE.hurt;
   if(f.state==='attack'){
     const m=f.move,t=f.t,s=m.startup,a=m.active,r=m.recovery;
@@ -1366,7 +1373,7 @@ function getPose(f){
     }
     if(f.mk==='pdown')return mix(POSE.chamber,ST,ease(t/r));
     if(f.mk==='sweep'){
-      const P=SWEEP_POSE;
+      const P=sweepPoses(f);
       if(t<s*0.4)return mix(ST,P.wind,ease(t/(s*0.4)));
       if(t<s)return mix(P.wind,P.hit,ease((t-s*0.4)/(s*0.6)));
       if(t<s+a)return P.hit;
@@ -1606,6 +1613,10 @@ function fighterRec(f){
 function finPoses(f){ // the fighter's own finisher poses (from the pose editor) over the defaults
   const g=fighterRec(f),o=g&&g.finPose;if(!o)return FIN_POSE;
   return{wind:Object.assign({},FIN_POSE.wind,o.wind),air:Object.assign({},FIN_POSE.air,o.air),kick:Object.assign({},FIN_POSE.kick,o.kick)};
+}
+function sweepPoses(f){ // the fighter's own sweep poses (from the pose editor) over the defaults
+  const g=fighterRec(f),o=g&&g.finisher==='sweep'&&g.finPose;if(!o)return SWEEP_POSE;
+  return{wind:Object.assign({},SWEEP_POSE.wind,o.wind),hit:Object.assign({},SWEEP_POSE.hit,o.hit)};
 }
 // the jump spinning back kick turns him all the way round: 0 = facing the opponent, PI = back to him
 function spinOf(f){
