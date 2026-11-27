@@ -237,7 +237,7 @@ addEventListener('gamepadconnected',()=>{pad.on=true;padStatus()});addEventListe
    hip turns over and the leg drives out sideways with the foot blade, body leans away. */
 const MOVES={
   // active = steps 1-2 (2 x stepLen); recovery = steps 3-4 + 6 frames to settle
-  punch:{name:'REVERSE PUNCH',startup:6,active:16,recovery:22,stepLen:8,reach:128,pts:1,lunge:3.5,hy:104},
+  punch:{name:'REVERSE PUNCH',startup:6,active:16,recovery:22,stepLen:8,reach:138,pts:1,lunge:3.5,hy:104},
   head:{name:'SIDE KICK TO HEAD',startup:13,active:7,recovery:20,reach:132,pts:2,lunge:2,hy:120},
   kick:{name:'SIDE KICK TO BODY',startup:10,active:8,recovery:18,reach:138,pts:1,lunge:2.2,hy:76},
   // defensive side kick: lean back and kick with the front leg while moving away,
@@ -247,7 +247,7 @@ const MOVES={
   // active the whole time in the air: backfist reach first, then the longer rear punch
   blitz:{name:'BLITZ',startup:8,active:12,recovery:24,reach:125,pts:1,lunge:7,hy:116},
   // punch fake: a short step forward, front foot then back foot the same distance, lead hand rises.
-  // a reverse punch or blitz thrown before he's settled back into stance gets a 10% boost (see scaledMove)
+  // a reverse punch (15%) or blitz (10%) thrown before he's settled back into stance gets a boost (see scaledMove)
   fakeP:{name:'PUNCH FAKE',startup:6,active:2,recovery:10,reach:0,pts:0,lunge:0,step:16,fake:'punch'},
   fakeK:{name:'KICK FAKE',startup:5,active:2,recovery:9,reach:0,pts:0,lunge:0,fake:'kick'},
   // press: lead leg stays up off the mat while he skips forward; kicks fire straight from the raised leg
@@ -1084,14 +1084,14 @@ function scaledMove(f,k){
   const g=fighterOf(f),isK=KICK_MOVES[k],isP=PUNCH_MOVES[k],lv=staLvl(f);
   let s=base.startup,r=base.recovery,lunge=base.lunge;
   // (online the stats and stamina are each player's own fighter's)
-  // reverse punch or blitz thrown out of a punch fake, before he's back in stance: 10% faster and 10% further
-  const boost=(k==='punch'||k==='blitz')&&!!f.feint;
+  // thrown out of a punch fake, before he's back in stance: reverse punch 15% faster and further, blitz 10%
+  const boost=(k==='punch'||k==='blitz')&&!!f.feint,bp=k==='punch'?0.15:0.1;
   f.feint=false;
-  if(boost){lunge*=1.1;addPop('FEINT +10%',f.x,GROUND-170,'#c9a6ff',22)}
+  if(boost){lunge*=1+bp;addPop('FEINT +'+Math.round(bp*100)+'%',f.x,GROUND-170,'#c9a6ff',22)}
   if(g&&(isK||isP))s=Math.max(1,Math.round(s*(1-((isK?g.kickSpd:g.punchSpd)-70)*0.005)));
   // tired: moves start 10% later and recover 15% slower; exhausted: double that
   if(lv&&!base.noHit){s=Math.round(s*(1+0.1*lv));r=Math.round(r*(1+0.15*lv))}
-  if(boost)s=Math.max(1,Math.round(s*0.9));
+  if(boost)s=Math.max(1,Math.floor(s*(1-bp))); // whole frames, rounded in his favour
   return s===base.startup&&r===base.recovery&&lunge===base.lunge?base:Object.assign({},base,{startup:s,recovery:r,lunge});
 }
 /* ---------- stamina (0-100) ----------
@@ -1150,7 +1150,7 @@ function showRules(){
       <li>Backfist to the body ducks under head strikes and beats the blitz.</li>
       <li>Step in jumps over a side kick (or a kick fake) and counters it.</li>
       <li>A side kick thrown before a head-kicking leg lifts jams it.</li>
-      <li>Punch fake: a short step forward with both feet. A reverse punch or blitz thrown before you're back in stance is 10% faster and goes 10% further.</li>
+      <li>Punch fake: a short step forward with both feet. Before you're back in stance, a reverse punch comes out 15% faster and goes 15% further, a blitz 10%.</li>
     </ul>
     <h2 class="sec">Finishers</h2>
     <ul class="rules">
