@@ -348,7 +348,7 @@ function mix(a,b,t){
 const ease=t=>t<0?0:t>1?1:t*t*(3-2*t);
 
 function makeFighter(x,team){
-  return{x,facing:team==='blue'?1:-1,team,state:'idle',t:0,move:null,mk:'',hasHit:false,flash:0,walk:0,spd:1,ac:0};
+  return{x,facing:team==='blue'?1:-1,team,state:'idle',t:0,move:null,mk:'',hasHit:false,flash:0,walk:0,spd:1,ac:0,sta:100};
 }
 const SPX=3.4;
 // tatami: 8 blocks across; at the fighters' line it runs from MAT_L to MAT_R
@@ -360,7 +360,7 @@ const isOut=f=>f.x<MAT_L||f.x>MAT_R;
 const wasPushed=f=>(f.pushT!=null&&frame-f.pushT<15)||(mode==='host'&&f===CPU&&!!f.remotePush);
 let P1,CPU;
 
-function begin(f,k){f.state='attack';f.mk=k;f.move=scaledMove(f,k);f.t=0;f.hasHit=false;f.ac++;onStart(f);if(k!=='pdown')sfx('whoosh')}
+function begin(f,k){f.state='attack';f.mk=k;f.move=scaledMove(f,k);f.t=0;f.hasHit=false;f.ac++;onStart(f);spendSta(f,STA_COST[k]);if(k!=='pdown')sfx('whoosh')}
 // Perfect timing: a side kick started before the opponent's head-kicking leg has even lifted (first ~4 frames)
 // jams the head kick (it can't score) and the side kick counts as a counter.
 function onStart(f){
@@ -376,14 +376,14 @@ const canStep=f=>{const o=f===P1?CPU:P1;return !!o&&o.state==='attack'&&KICKS.in
 function startAttack(f,k){
   if(f.state!=='idle')return false;
   if(k==='step'&&!canStep(f))return false;
-  f.state='attack';f.mk=k;f.move=scaledMove(f,k);f.t=0;f.hasHit=false;f.ac++;onStart(f);sfx('whoosh');return true;
+  f.state='attack';f.mk=k;f.move=scaledMove(f,k);f.t=0;f.hasHit=false;f.ac++;onStart(f);spendSta(f,STA_COST[k]);sfx('whoosh');return true;
 }
 // 1 pressed at the same time as W or D turns that move into a fake.
 // "Same time" allows ~4 frames (about 1/15 s) either way, since fingers never land exactly together.
 function handleButtons(f){
   // R during the jump back turns it into the defensive backfist, still in the air
   if(f.state==='attack'&&f.mk==='back'&&f.t<12&&(buf.dbf>0||buf.lbf>0||buf.hbf>0)){
-    f.mk='dbf';f.move=scaledMove(f,'dbf');f.hasHit=false;f.ac++;buf.dbf=buf.lbf=buf.hbf=0;sfx('whoosh');
+    f.mk='dbf';f.move=scaledMove(f,'dbf');f.hasHit=false;f.ac++;spendSta(f,STA_COST.dbf);buf.dbf=buf.lbf=buf.hbf=0;sfx('whoosh');
   }
   // PRESS: hold Shift to lift the lead leg and skip forward; D / F kick from there without the foot touching down
   if(f.pressing&&f.state==='idle'){f.state='press';f.pt=0}
@@ -418,6 +418,7 @@ function advance(f){
   f.t++;
   const m=f.move;
   if(f.t>=m.startup+m.active+m.recovery){
+    if(!m.fake&&!m.noHit&&!f.hasHit)spendSta(f,(STA_COST[f.mk]||0)*0.5); // a miss tires you more
     const wasPress=m.press;f.state='idle';f.move=null;
     if(wasPress){if(f.pressing)f.state='press';else begin(f,'pdown')} // leg goes back up, or comes down
   }
@@ -428,7 +429,7 @@ function moveFighter(f,dir){
     f.x+=dir*SPX*f.spd*moveSpdMult(f);
     if(dir)f.walk+=0.3;
   }else if(f.state==='press'){
-    if(state==='fight')f.x+=2.4*f.facing;f.pt=(f.pt||0)+1; // skipping forward on the back foot
+    if(state==='fight'){f.x+=2.4*f.facing;spendSta(f,0.05)}f.pt=(f.pt||0)+1; // skipping forward on the back foot; holding the leg up drains stamina
   }else if(f.state==='attack'&&f.move.press){
     f.x+=f.move.lunge*f.facing;f.pt=(f.pt||0)+1;
   }else if(f.state==='attack'){
@@ -529,11 +530,12 @@ function aiThink(){
     else ai.mx=adx>ai.want+10?toward:adx<ai.want-14?-toward:(Math.random()<0.3?toward:0);
   }
   if((c.x<MAT_L+60&&ai.mx<0)||(c.x>MAT_R-60&&ai.mx>0))ai.mx=toward; // don't back off the mat
+  const ag=diff.aggr*(staLvl(p)===2?1.8:1)*(staLvl(c)===2?0.5:1);
   if(c.state==='idle'){
-    if(adx<200&&adx>90&&Math.random()<diff.aggr*2.5)startAttack(c,'punch');
-    else if(adx>=110&&adx<175&&Math.random()<diff.aggr*2)startAttack(c,'kick');
-    else if(adx>=110&&adx<165&&Math.random()<diff.aggr)startAttack(c,'head');
-    else if(adx>=170&&adx<220&&Math.random()<diff.aggr*1.5)startAttack(c,'blitz');
+    if(adx<200&&adx>90&&Math.random()<ag*2.5)startAttack(c,'punch');
+    else if(adx>=110&&adx<175&&Math.random()<ag*2)startAttack(c,'kick');
+    else if(adx>=110&&adx<165&&Math.random()<ag)startAttack(c,'head');
+    else if(adx>=170&&adx<220&&Math.random()<ag*1.5)startAttack(c,'blitz');
     else if(p.state==='attack'&&p.t>=p.move.startup+p.move.active&&adx<200&&Math.random()<diff.acc*0.22)startAttack(c,adx<130?'kick':'punch');
   }
   return ai.mx;
@@ -739,7 +741,7 @@ function newGame(k){
 }
 function award(a,d){
   const m=a.move,i=a===P1?0:1;
-  score[i]+=m.pts;a.hasHit=true;d.flash=18;lastLoser=d;
+  score[i]+=m.pts;a.hasHit=true;d.flash=18;lastLoser=d;spendSta(d,8);
   hitstop=7;
   const ix=d.x-a.facing*8,iy=GROUND-m.hy*S;
   const counter=(a.mk==='def'&&d.state==='attack'&&d.mk==='punch')||(a.mk==='dbf'&&d.state==='attack'&&d.mk==='punch')||(a.mk==='lbf'&&d.state==='attack'&&d.mk==='blitz')||(a.mk==='step'&&d.state==='attack'&&(d.mk==='kick'||d.mk==='pkick'||d.mk==='fakeK'))||(a.counterK&&(d.mk==='head'||d.mk==='phead'));
@@ -832,33 +834,43 @@ function showPadMap(){
   overlay.classList.remove('hide');padStatus();
 }
 // ratings run 1-99, like a sports-game card (99 is the top of the scale)
-const STAT_ROWS=[['flex','Kicks flex'],['kickSpd','Kicks speed'],['punchSpd','Punches speed'],['moveSpd','Movement speed']];
-const FIGHTERS=[
-  {name:'KONSTANTINOS CHOZOS',height:'1.85 m',heightM:1.85,flex:99,kickSpd:90,punchSpd:80,moveSpd:80,main:'#1e8cff',dark:'#0b4fa8'},
-  {name:'MURPHY BAILY',height:'1.77 m',heightM:1.77,flex:80,kickSpd:70,punchSpd:99,moveSpd:90,main:'#e8392c',dark:'#9c1d14'}
-];
+const STAT_ROWS=[['flex','Kicks flex'],['kickSpd','Kicks speed'],['punchSpd','Punches speed'],['moveSpd','Movement speed'],['cardio','Cardio']];
+// look: skin, hair, facial (none/stubble/beard), top (tshirt/tank/rashguard), topColor, pants, stripe, build (slim/athletic/heavy)
+// stance: the fighter's own fighting stance (overrides POSE.stance); both come from the design and stance editors
+const FIGHTERS=window.PF_FIGHTERS||[]; // the roster lives in fighters.js
 // kick flexibility: your max kick height = flex * 0.0115 * your own height (99 flex reaches 1.14 x your height).
 // if the opponent's head (~0.92 of their height) is higher than that, head kicks can't score on them.
 function fighterOf(f){const i=f===P1?SET.fighter:1-SET.fighter;return FIGHTERS[i]}
 function headOutOfReach(a,d){
   if(mode!=='cpu')return false;
   const af=fighterOf(a),df=fighterOf(d);
-  return !!(af&&df&&af.flex*0.0115*af.heightM<df.heightM*0.92);
+  return !!(af&&df&&(af.flex-(staLvl(a)===2?15:0))*0.0115*af.heightM<df.heightM*0.92); // exhausted legs lose 15 flex
 }
 // punches/kicks speed: each point above 70 shaves 0.5% off startup; each point below adds 0.5%.
 // movement speed: each point above 70 adds 0.4% to walking speed (70 = baseline).
 const PUNCH_MOVES={punch:1,blitz:1,lbf:1,hbf:1,step:1,dbf:1,fakeP:1};
 const KICK_MOVES={kick:1,head:1,pkick:1,phead:1,def:1,fakeK:1};
-function moveSpdMult(f){const g=fighterOf(f);return mode==='cpu'&&g?1+(g.moveSpd-70)*0.004:1}
+function moveSpdMult(f){const g=fighterOf(f);return mode==='cpu'&&g?(1+(g.moveSpd-70)*0.004)*(staLvl(f)===2?0.85:1):1}
 function scaledMove(f,k){
   const base=MOVES[k];
   if(mode!=='cpu')return base;
-  const isK=KICK_MOVES[k],isP=PUNCH_MOVES[k];
-  if(!isK&&!isP)return base;
-  const g=fighterOf(f);if(!g)return base;
-  const s=Math.max(1,Math.round(base.startup*(1-((isK?g.kickSpd:g.punchSpd)-70)*0.005)));
-  return s===base.startup?base:Object.assign({},base,{startup:s});
+  const g=fighterOf(f),isK=KICK_MOVES[k],isP=PUNCH_MOVES[k],lv=staLvl(f);
+  let s=base.startup,r=base.recovery;
+  if(g&&(isK||isP))s=Math.max(1,Math.round(s*(1-((isK?g.kickSpd:g.punchSpd)-70)*0.005)));
+  // tired: moves start 10% later and recover 15% slower; exhausted: double that
+  if(lv&&!base.noHit){s=Math.round(s*(1+0.1*lv));r=Math.round(r*(1+0.15*lv))}
+  return s===base.startup&&r===base.recovery?base:Object.assign({},base,{startup:s,recovery:r});
 }
+/* ---------- stamina (0-100) ----------
+   every move costs stamina, a move that misses costs half as much again, and taking a hit costs 8.
+   It refills while you're not attacking, 2.5x faster during the referee's break after a point.
+   Cardio (1-99) sets how fast it refills and how cheap moves are. Below 40 you're tired, below 15 exhausted. */
+const STA_COST={punch:6,fakeP:3,fakeK:3,blitz:12,kick:9,head:14,pkick:8,phead:10,def:10,step:8,lbf:6,hbf:6,dbf:7,back:10};
+const staOn=()=>mode==='cpu';
+function staLvl(f){return staOn()&&f&&f.sta!=null?(f.sta<15?2:f.sta<40?1:0):0}
+function cardioOf(f){const g=fighterRec(f);return g&&g.cardio||80}
+function spendSta(f,n){if(staOn()&&n&&f.sta!=null)f.sta=Math.max(0,f.sta-n*(1+(80-cardioOf(f))*0.01))}
+function regenSta(f,mult){if(staOn()&&f.sta!=null)f.sta=Math.min(100,f.sta+cardioOf(f)/99*0.11*mult)}
 function drawPortraits(){ // card portraits use the same renderer as the match
   document.querySelectorAll('canvas.fig[data-i]').forEach(c=>{
     const F=FIGHTERS[+c.dataset.i],d=2,k=d*0.44;if(!F)return;
@@ -908,6 +920,14 @@ function showRules(){
       <li><b>Kicks flex</b>: how high you can kick. If the opponent's head is above your reach, head kicks won't score.</li>
       <li><b>Kicks speed</b> and <b>Punches speed</b>: higher ratings make those strikes come out sooner.</li>
       <li><b>Movement speed</b>: higher ratings walk faster on the mat.</li>
+      <li><b>Cardio</b>: higher ratings refill stamina faster and make every move cost less.</li>
+    </ul>
+    <h2 class="sec">Stamina</h2>
+    <ul class="rules">
+      <li>The bar under each score. Every move costs some, a miss costs extra, getting hit costs some too.</li>
+      <li>It refills while you're not attacking, and fast during the break after a point.</li>
+      <li><b>Tired</b> (yellow): moves come out slower and take longer to recover from.</li>
+      <li><b>Exhausted</b> (red): even slower, you walk slower and your kicks lose height.</li>
     </ul>
     <h2 class="sec">Controls</h2>
     <ul class="rules">${keysList}</ul>
@@ -952,6 +972,7 @@ function update(){
   if(state==='menu'||state==='end'||state==='lobby')return;
   if(hitstop>0){hitstop--;return}
   frame++;
+  for(const f of[P1,CPU]){if(state==='break')regenSta(f,2.5);else if(f.state==='idle')regenSta(f,1)}
   if(state==='ready'){
     stTimer--;
     if(stTimer<=0){state='fight';sfx('bell')}
@@ -1107,6 +1128,7 @@ function drawArena(){
 }
 
 function getPose(f){
+  const ST=stanceOf(f);
   if(state==='break'&&f===lastLoser&&stTimer>45)return POSE.hurt;
   if(f.state==='attack'){
     const m=f.move,t=f.t,s=m.startup,a=m.active,r=m.recovery;
@@ -1114,7 +1136,7 @@ function getPose(f){
       // drop low and fire the punch, then 4 equal running steps:
       // steps 1-2 can score, the punch stays out through step 3, then settle
       const D=m.stepLen,LEGS=[LEG.A,LEG.B,LEG.A,LEG.B,LEG.A];
-      if(t<s)return mix(POSE.stance,compose(UP.punch,LEG.A),ease(t/s));
+      if(t<s)return mix(ST,compose(UP.punch,LEG.A),ease(t/s));
       const k=(t-s)/D;
       if(k<4){
         const i=Math.floor(k),legs=mix(LEGS[i],LEGS[i+1],ease(k-i));
@@ -1122,11 +1144,11 @@ function getPose(f){
         const up=k<3?UP.punch:mix(UP.punch,UP.run,ease(k-3));
         return compose(up,legs);
       }
-      return mix(compose(UP.run,LEG.A),POSE.stance,ease((t-s-4*D)/(r-2*D)));
+      return mix(compose(UP.run,LEG.A),ST,ease((t-s-4*D)/(r-2*D)));
     }
     if(f.mk==='blitz'){
       // backfist and direct come almost together, both finished while gliding through the air
-      if(t<6)return mix(POSE.stance,POSE.bCrouch,ease(t/6));
+      if(t<6)return mix(ST,POSE.bCrouch,ease(t/6));
       if(t<9)return mix(POSE.bCrouch,POSE.bBack,ease((t-6)/3));
       if(t<11)return POSE.bBack;
       if(t<13)return mix(POSE.bBack,POSE.bPunch,ease((t-11)/2));
@@ -1135,7 +1157,7 @@ function getPose(f){
       const k=(t-20)/8;
       if(k<1)return mix(POSE.bPunch,compose(UP.run,LEG.B),ease(k));
       if(k<2)return compose(UP.run,mix(LEG.B,LEG.A,ease(k-1)));
-      return mix(compose(UP.run,LEG.A),POSE.stance,ease((t-36)/(s+a+r-36)));
+      return mix(compose(UP.run,LEG.A),ST,ease((t-36)/(s+a+r-36)));
     }
     if(f.mk==='pkick'||f.mk==='phead'){
       const KK=f.mk==='phead'?POSE.hKick:POSE.kick;
@@ -1144,56 +1166,62 @@ function getPose(f){
       return mix(KK,POSE.chamber,ease((t-s-a)/r));
     }
     if(f.mk==='step'){
-      if(t<3)return mix(POSE.stance,POSE.stepAir,ease(t/3));
+      if(t<3)return mix(ST,POSE.stepAir,ease(t/3));
       if(t<6)return mix(POSE.stepAir,POSE.stepFist,ease((t-3)/3));
       if(t<15)return POSE.stepFist;
       if(t<17)return mix(POSE.stepFist,POSE.stepAir,ease((t-15)/2));
-      return mix(POSE.stepAir,POSE.stance,ease((t-17)/r));
+      return mix(POSE.stepAir,ST,ease((t-17)/r));
     }
     if(f.mk==='back'||f.mk==='dbf'){
       const A=f.mk==='dbf'?(t<4?POSE.backAir:t<6?mix(POSE.backAir,POSE.dbfAir,ease((t-4)/2)):t<15?POSE.dbfAir:mix(POSE.dbfAir,POSE.backAir,ease((t-15)/2))):POSE.backAir;
-      if(t<2)return mix(POSE.stance,A,ease(t/2));
+      if(t<2)return mix(ST,A,ease(t/2));
       if(t<17)return A;
-      return mix(A,POSE.stance,ease((t-17)/(s+a+r-17)));
+      return mix(A,ST,ease((t-17)/(s+a+r-17)));
     }
     if(f.mk==='lbf'||f.mk==='hbf'){
       const P=POSE[f.mk];
-      if(t<s)return mix(POSE.stance,P,ease(t/s));
+      if(t<s)return mix(ST,P,ease(t/s));
       if(t<s+a)return P;
-      return mix(P,POSE.stance,ease((t-s-a)/r));
+      return mix(P,ST,ease((t-s-a)/r));
     }
-    if(f.mk==='pdown')return mix(POSE.chamber,POSE.stance,ease(t/r));
+    if(f.mk==='pdown')return mix(POSE.chamber,ST,ease(t/r));
     if(m.fake){
       const P=POSE[f.mk];
-      if(t<s)return mix(POSE.stance,P,ease(t/s));
+      if(t<s)return mix(ST,P,ease(t/s));
       if(t<s+a)return P;
-      return mix(P,POSE.stance,ease((t-s-a)/r));
+      return mix(P,ST,ease((t-s-a)/r));
     }
     if(f.mk==='def'){
-      if(t<s){const u=t/s;return u<0.5?mix(POSE.stance,POSE.dLean,ease(u/0.5)):mix(POSE.dLean,POSE.dKick,ease((u-0.5)/0.5))}
+      if(t<s){const u=t/s;return u<0.5?mix(ST,POSE.dLean,ease(u/0.5)):mix(POSE.dLean,POSE.dKick,ease((u-0.5)/0.5))}
       if(t<s+a)return POSE.dKick;
       // one big step back with the kicking leg, then switch into stance
       const rt=t-s-a;
       if(rt<12)return mix(POSE.dKick,POSE.dPlant,ease(rt/12));
       if(rt<16)return POSE.dPlant;
-      return mix(POSE.dPlant,POSE.stance,ease((rt-16)/(r-16)));
+      return mix(POSE.dPlant,ST,ease((rt-16)/(r-16)));
     }
     const CH=f.mk==='head'?POSE.hChamber:POSE.chamber,KK=f.mk==='head'?POSE.hKick:POSE.kick;
-    if(t<s){const u=t/s;return u<0.55?mix(POSE.stance,CH,ease(u/0.55)):mix(CH,KK,ease((u-0.55)/0.45))}
+    if(t<s){const u=t/s;return u<0.55?mix(ST,CH,ease(u/0.55)):mix(CH,KK,ease((u-0.55)/0.45))}
     if(t<s+a)return KK;
-    const u=(t-s-a)/r;return u<0.5?mix(KK,CH,ease(u/0.5)):mix(CH,POSE.stance,ease((u-0.5)/0.5));
+    const u=(t-s-a)/r;return u<0.5?mix(KK,CH,ease(u/0.5)):mix(CH,ST,ease((u-0.5)/0.5));
   }
   if(f.state==='press')return POSE.chamber;
   // bouncy side-on stance, shuffle feet when moving
-  const p=mix(POSE.stance,POSE.stance,0),bob=Math.sin(frame*0.14+(f.team==='red'?1.5:0))*2,w=Math.sin(f.walk)*5;
+  // tired fighters breathe harder; exhausted ones let their hands drop
+  const lv=staLvl(f),amp=2+lv*1.6,spdB=0.14-lv*0.025;
+  const p=mix(ST,ST,0),bob=Math.sin(frame*spdB+(f.team==='red'?1.5:0))*amp,w=Math.sin(f.walk)*5;
   for(const k of['hip','sh','hd','le','lf','re','rf'])p[k][1]+=bob;
+  if(lv===2){p.lf[1]+=8;p.rf[1]+=8;p.le[1]+=4;p.re[1]+=4}
   p.fk[1]+=bob*0.5;p.bk[1]+=bob*0.5;
   p.ff[0]+=w;p.fk[0]+=w*0.6;p.bf[0]+=w*0.6;p.bk[0]+=w*0.4;
   return p;
 }
-/* ---------- fighter art: outlined, shaded body parts (fighting-game look, not a stick figure) ---------- */
-const OL='#0d0b12',LIT=[-0.35,-0.94]; // outline colour; light comes from above, slightly behind
-let FL=false; // white flash when hit
+/* ---------- fighter art: outlined, shaded body parts (fighting-game look) ----------
+   the design and stance editors use this exact code, so what you see there is what the game draws */
+const OL='#0d0b12',LIT=[-0.35,-0.94]; // outline colour; light from above, slightly behind
+let FL=false,BLD=1; // white flash when hit; limb thickness for the build
+const LOOK_DEF={skin:'#d89c74',hair:'#2a1c14',facial:'none',top:'tshirt',topColor:'',pants:'#1b1d26',stripe:'',build:'athletic'};
+const BUILDS={slim:[0.9,0.9],athletic:[1,1],heavy:[1.08,1.15]}; // [limbs, torso]
 const _sh={};
 function shadeC(hex,amt){ // amt > 0 lightens, < 0 darkens
   const k=hex+amt;if(_sh[k])return _sh[k];
@@ -1217,6 +1245,7 @@ function roundGrad(a,b,w,base){ // cylinder shading across a segment
   return g;
 }
 function limb2(a,b,c,r1,r2,r3,base){
+  r1*=BLD;r2*=BLD;r3*=BLD;
   ctx.fillStyle=OL;capsule(a,b,r1+1.6,r2+1.6);ctx.fill();capsule(b,c,r2+1.6,r3+1.6);ctx.fill();
   ctx.fillStyle=roundGrad(a,b,r1,base);capsule(a,b,r1,r2);ctx.fill();
   ctx.fillStyle=roundGrad(b,c,r2,base);capsule(b,c,r2,r3);ctx.fill();
@@ -1226,7 +1255,7 @@ function legArt(h,k,a,cloth,stripe){
   limb2(h,k,a,9,7.2,6.4,cloth);
   if(FL)return;
   const off=(P,Q,r)=>{const dx=Q[0]-P[0],dy=Q[1]-P[1],L=Math.hypot(dx,dy)||1;return[-dy/L*r,dx/L*r]};
-  const o1=off(h,k,5.6),o2=off(k,a,4.6);
+  const o1=off(h,k,5.6*BLD),o2=off(k,a,4.6*BLD);
   ctx.strokeStyle=stripe;ctx.lineWidth=2;
   ctx.beginPath();ctx.moveTo(h[0]+o1[0],h[1]+o1[1]);ctx.lineTo(k[0]+(o1[0]+o2[0])/2,k[1]+(o1[1]+o2[1])/2);ctx.lineTo(a[0]+o2[0],a[1]+o2[1]);ctx.stroke();
   // fabric fold behind the knee
@@ -1242,42 +1271,46 @@ function bootArt(pt,ang,len,col){ // padded foot protector
   if(!FL){ctx.fillStyle='rgba(255,255,255,.85)';ctx.fillRect(-0.6,-5.4,2.6,10.4)}
   ctx.restore();
 }
-function torsoArt(p,shL0,shR0,hpL0,hpR0,px,py,shirt){
+function torsoArt(p,px,py,shirt,tb,top,skin){
   const ux=p.sh[0]-p.hip[0],uy=p.sh[1]-p.hip[1];
-  const sw=p.sw*1.18+2,hw=p.hw+5;
+  const sw=(p.sw*1.18+2)*tb,hw=(p.hw+5)*tb;
   const shL=[p.sh[0]+px*sw,p.sh[1]+py*sw],shR=[p.sh[0]-px*sw,p.sh[1]-py*sw];
   const hpL=[p.hip[0]+px*hw,p.hip[1]+py*hw],hpR=[p.hip[0]-px*hw,p.hip[1]-py*hw];
   const cL=[p.hip[0]+ux*0.6+px*(sw+3),p.hip[1]+uy*0.6+py*(sw+3)];
   const cR=[p.hip[0]+ux*0.6-px*(sw+1.5),p.hip[1]+uy*0.6-py*(sw+1.5)];
-  const top=[p.sh[0]+ux*0.14,p.sh[1]+uy*0.14],bot=[p.hip[0]-ux*0.06,p.hip[1]-uy*0.06];
-  const path=()=>{ctx.beginPath();ctx.moveTo(hpL[0],hpL[1]);ctx.quadraticCurveTo(cL[0],cL[1],shL[0],shL[1]);
-    ctx.quadraticCurveTo(top[0],top[1],shR[0],shR[1]);ctx.quadraticCurveTo(cR[0],cR[1],hpR[0],hpR[1]);
-    ctx.quadraticCurveTo(bot[0],bot[1],hpL[0],hpL[1]);ctx.closePath()};
-  path();ctx.lineWidth=3.4;ctx.strokeStyle=OL;ctx.stroke();
+  const top0=[p.sh[0]+ux*0.14,p.sh[1]+uy*0.14],bot=[p.hip[0]-ux*0.06,p.hip[1]-uy*0.06];
+  ctx.beginPath();ctx.moveTo(hpL[0],hpL[1]);ctx.quadraticCurveTo(cL[0],cL[1],shL[0],shL[1]);
+  ctx.quadraticCurveTo(top0[0],top0[1],shR[0],shR[1]);ctx.quadraticCurveTo(cR[0],cR[1],hpR[0],hpR[1]);
+  ctx.quadraticCurveTo(bot[0],bot[1],hpL[0],hpL[1]);ctx.closePath();
+  ctx.lineWidth=3.4;ctx.strokeStyle=OL;ctx.stroke();
   if(FL)ctx.fillStyle='#ffffff';
   else{const g=ctx.createLinearGradient(shL[0],shL[1],shR[0],shR[1]);g.addColorStop(0,shadeC(shirt,0.25));g.addColorStop(0.55,shirt);g.addColorStop(1,shadeC(shirt,-0.4));ctx.fillStyle=g}
   ctx.fill();
   if(FL)return;
-  // chest and side folds of the shirt
+  // chest and side folds
   ctx.strokeStyle='rgba(0,0,0,.28)';ctx.lineWidth=1.3;
   ctx.beginPath();ctx.moveTo(p.sh[0]+px*2-ux*0.32,p.sh[1]+py*2-uy*0.32);ctx.quadraticCurveTo(p.sh[0]+px*8-ux*0.3,p.sh[1]+py*8-uy*0.3,shL[0]-ux*0.22,shL[1]-uy*0.22);ctx.stroke();
   ctx.beginPath();ctx.moveTo(hpR[0]+ux*0.25,hpR[1]+uy*0.25);ctx.lineTo(p.hip[0]+ux*0.6-px*(sw*0.5),p.hip[1]+uy*0.6-py*(sw*0.5));ctx.stroke();
-  // collar
-  ctx.strokeStyle=shadeC(shirt,-0.45);ctx.lineWidth=2.2;
-  ctx.beginPath();ctx.moveTo(p.sh[0]+px*4,p.sh[1]+py*4);ctx.quadraticCurveTo(p.sh[0]-ux*0.12,p.sh[1]-uy*0.12,p.sh[0]-px*4,p.sh[1]-py*4);ctx.stroke();
+  if(top==='tank'){ // scoop neck shows the upper chest
+    ctx.fillStyle=skin;ctx.strokeStyle=OL;ctx.lineWidth=1.6;
+    ctx.beginPath();ctx.moveTo(p.sh[0]+px*7,p.sh[1]+py*7);ctx.quadraticCurveTo(p.sh[0]-ux*0.34,p.sh[1]-uy*0.34,p.sh[0]-px*7,p.sh[1]-py*7);ctx.closePath();ctx.fill();ctx.stroke();
+  }else{
+    ctx.strokeStyle=shadeC(shirt,-0.45);ctx.lineWidth=2.2;
+    ctx.beginPath();ctx.moveTo(p.sh[0]+px*4,p.sh[1]+py*4);ctx.quadraticCurveTo(p.sh[0]-ux*0.12,p.sh[1]-uy*0.12,p.sh[0]-px*4,p.sh[1]-py*4);ctx.stroke();
+  }
 }
-function beltArt(p,px,py,stripe){ // pants waistband
-  const hw=p.hw+4.4,hpL=[p.hip[0]+px*hw,p.hip[1]+py*hw],hpR=[p.hip[0]-px*hw,p.hip[1]-py*hw];
+function beltArt(p,px,py,stripe,pants,tb){ // pants waistband
+  const hw=(p.hw+4.4)*tb,hpL=[p.hip[0]+px*hw,p.hip[1]+py*hw],hpR=[p.hip[0]-px*hw,p.hip[1]-py*hw];
   ctx.fillStyle=OL;capsule(hpL,hpR,5.4,5.4);ctx.fill();
-  ctx.fillStyle=FL?'#ffffff':'#1d1f29';capsule(hpL,hpR,3.9,3.9);ctx.fill();
+  ctx.fillStyle=FL?'#ffffff':shadeC(pants,0.04);capsule(hpL,hpR,3.9,3.9);ctx.fill();
   if(!FL){ctx.strokeStyle=stripe;ctx.lineWidth=1.4;ctx.beginPath();ctx.moveTo(hpL[0],hpL[1]-0.8);ctx.lineTo(hpR[0],hpR[1]-0.8);ctx.stroke()}
 }
-function headArt(sh,hd,skin,gear){
-  const x=hd[0],y=hd[1],D=Math.PI/180;
+function headArt(sh,hd,look,gear){
+  const skin=look.skin,hair=look.hair,x=hd[0],y=hd[1],D=Math.PI/180;
   // neck
   const nb=[sh[0],sh[1]+2],nt=[x-1.5,y+8];
-  ctx.fillStyle=OL;capsule(nb,nt,6.2,5.6);ctx.fill();
-  ctx.fillStyle=roundGrad(nb,nt,4.6,shadeC(skin,-0.12));capsule(nb,nt,4.7,4.1);ctx.fill();
+  ctx.fillStyle=OL;capsule(nb,nt,6.2*BLD,5.6*BLD);ctx.fill();
+  ctx.fillStyle=roundGrad(nb,nt,4.6,shadeC(skin,-0.12));capsule(nb,nt,4.7*BLD,4.1*BLD);ctx.fill();
   // skull and jaw
   ctx.fillStyle=OL;ctx.beginPath();ctx.ellipse(x,y,11.6,13.1,0,0,7);ctx.fill();
   ctx.beginPath();ctx.ellipse(x+4,y+6.4,7.6,6.8,0.25,0,7);ctx.fill();
@@ -1286,16 +1319,25 @@ function headArt(sh,hd,skin,gear){
   ctx.beginPath();ctx.ellipse(x,y,10,11.5,0,0,7);ctx.fill();
   ctx.beginPath();ctx.ellipse(x+4,y+6.4,6,5.2,0.25,0,7);ctx.fill();
   if(!FL){
+    // sideburn, facial hair
+    ctx.fillStyle=hair;ctx.beginPath();ctx.roundRect(x+2.2,y-2,2.4,7.5,1.2);ctx.fill();
+    if(look.facial==='stubble'){
+      ctx.globalAlpha=0.38;ctx.beginPath();ctx.ellipse(x+5,y+7.4,5.6,4.2,0.25,0,7);ctx.fill();ctx.fillRect(x+6.5,y+4.2,4.6,1.6);ctx.globalAlpha=1;
+    }else if(look.facial==='beard'){
+      ctx.strokeStyle=OL;ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(x+2.4,y+3);ctx.quadraticCurveTo(x+3,y+12.6,x+8.4,y+12.2);ctx.quadraticCurveTo(x+11.4,y+11.4,x+10.8,y+6);ctx.lineTo(x+4,y+4.6);ctx.closePath();ctx.fill();ctx.stroke();
+      ctx.beginPath();ctx.roundRect(x+6,y+4.1,5.4,2,1);ctx.fill();
+    }
     // nose, brow, eye, mouthguard
     ctx.fillStyle=skin;ctx.strokeStyle=OL;ctx.lineWidth=1.3;
     ctx.beginPath();ctx.moveTo(x+9.4,y-2.5);ctx.lineTo(x+12.6,y+2.6);ctx.lineTo(x+9.6,y+3.6);ctx.closePath();ctx.fill();ctx.stroke();
-    ctx.lineWidth=1.9;ctx.beginPath();ctx.moveTo(x+2.8,y-4.6);ctx.lineTo(x+9.6,y-3.4);ctx.stroke();
+    ctx.strokeStyle=shadeC(hair,-0.3);ctx.lineWidth=1.9;ctx.beginPath();ctx.moveTo(x+2.8,y-4.6);ctx.lineTo(x+9.6,y-3.4);ctx.stroke();
     ctx.fillStyle='#f4f1ea';ctx.beginPath();ctx.ellipse(x+6.6,y-0.8,2.1,1.5,0,0,7);ctx.fill();
     ctx.fillStyle=OL;ctx.beginPath();ctx.ellipse(x+7.4,y-0.7,1.1,1.3,0,0,7);ctx.fill();
-    ctx.strokeStyle=shadeC(skin,-0.45);ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x+4,y+2);ctx.quadraticCurveTo(x+6,y+4.5,x+9,y+4.2);ctx.stroke();
+    if(look.facial!=='beard'){ctx.strokeStyle=shadeC(skin,-0.45);ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x+4,y+2);ctx.quadraticCurveTo(x+6,y+4.5,x+9,y+4.2);ctx.stroke()}
     ctx.fillStyle=gear;ctx.strokeStyle=OL;ctx.lineWidth=1;ctx.beginPath();ctx.roundRect(x+6.4,y+6.4,4.6,2.6,1.2);ctx.fill();ctx.stroke();
   }
-  // padded headgear: crown, forehead bar and ear guard, face left open
+  // padded headgear in the corner colour: crown, forehead bar and ear guard, face left open
   ctx.beginPath();ctx.arc(x,y,13.8,150*D,322*D);ctx.arc(x,y,9.2,322*D,150*D,true);ctx.closePath();
   ctx.lineWidth=3;ctx.strokeStyle=OL;ctx.stroke();
   if(FL)ctx.fillStyle='#ffffff';
@@ -1306,12 +1348,19 @@ function headArt(sh,hd,skin,gear){
   if(!FL){ctx.strokeStyle=shadeC(gear,-0.45);ctx.lineWidth=1.3;ctx.beginPath();ctx.arc(x-1.8,y+2.2,2.6,0,7);ctx.stroke();
     ctx.strokeStyle=OL;ctx.lineWidth=1.6;ctx.beginPath();ctx.moveTo(x+0.5,y+7.4);ctx.lineTo(x+4.4,y+11.8);ctx.stroke()}
 }
-function armArt(s,e,f,skin,shirt,glove){
-  // skin, then short sleeve over the upper arm, then the glove
+function armArt(s,e,f,skin,shirt,glove,top){
   limb2(s,e,f,5,4.1,3.5,skin);
-  const m=[s[0]+(e[0]-s[0])*0.5,s[1]+(e[1]-s[1])*0.5];
-  ctx.fillStyle=OL;capsule(s,m,7.2,6.4);ctx.fill();
-  ctx.fillStyle=roundGrad(s,m,5.6,shirt);capsule(s,m,5.7,4.9);ctx.fill();
+  if(top==='rashguard'){ // long sleeves to the wrist
+    const w=[e[0]+(f[0]-e[0])*0.78,e[1]+(f[1]-e[1])*0.78];
+    ctx.fillStyle=OL;capsule(s,e,6.7*BLD,5.7*BLD);ctx.fill();capsule(e,w,5.7*BLD,5*BLD);ctx.fill();
+    ctx.fillStyle=roundGrad(s,e,5.2,shirt);capsule(s,e,5.2*BLD,4.3*BLD);ctx.fill();
+    ctx.fillStyle=roundGrad(e,w,4.3,shirt);capsule(e,w,4.3*BLD,3.7*BLD);ctx.fill();
+  }else if(top!=='tank'){ // short sleeve
+    const m=[s[0]+(e[0]-s[0])*0.5,s[1]+(e[1]-s[1])*0.5];
+    ctx.fillStyle=OL;capsule(s,m,7.2*BLD,6.4*BLD);ctx.fill();
+    ctx.fillStyle=roundGrad(s,m,5.6,shirt);capsule(s,m,5.7*BLD,4.9*BLD);ctx.fill();
+  }
+  // glove in the corner colour
   const ang=Math.atan2(f[1]-e[1],f[0]-e[0]);
   ctx.save();ctx.translate(f[0],f[1]);ctx.rotate(ang);
   ctx.fillStyle=OL;ctx.beginPath();ctx.roundRect(-8.4,-5.8,7,11.6,3);ctx.fill();
@@ -1327,30 +1376,39 @@ function armArt(s,e,f,skin,shirt,glove){
   }
   ctx.restore();
 }
+// the whole fighter in his own coordinates (feet at 0, facing right); gear (headgear, gloves, foot pads) is the corner colour
+function drawBody(p,look,gear,gearDark){
+  const bd=BUILDS[look.build]||BUILDS.athletic;BLD=bd[0];
+  const shirt=look.topColor||gear,stripe=look.stripe||gear,pants=look.pants||'#1b1d26';
+  const sx=p.sh[0]-p.hip[0],sy=p.sh[1]-p.hip[1],L=Math.hypot(sx,sy)||1,px=-sy/L,py=sx/L;
+  const shL=[p.sh[0]+px*p.sw,p.sh[1]+py*p.sw],shR=[p.sh[0]-px*p.sw,p.sh[1]-py*p.sw];
+  const hpL=[p.hip[0]+px*p.hw,p.hip[1]+py*p.hw],hpR=[p.hip[0]-px*p.hw,p.hip[1]-py*p.hw];
+  ctx.lineCap='round';ctx.lineJoin='round';
+  legArt(hpR,p.bk,p.bf,shadeC(pants,-0.3),shadeC(stripe,-0.2));bootArt(p.bf,p.bfa,p.bfl,gearDark); // far leg
+  torsoArt(p,px,py,shirt,bd[1],look.top,look.skin);
+  beltArt(p,px,py,stripe,pants,bd[1]);
+  legArt(hpL,p.fk,p.ff,pants,stripe);bootArt(p.ff,p.ffa,p.ffl,gear);                                // lead (kicking) leg
+  headArt(p.sh,p.hd,look,gear);
+  armArt(shR,p.re,p.rf,shadeC(look.skin,-0.1),shadeC(shirt,-0.12),gearDark,look.top);                 // rear (reverse punch) arm
+  armArt(shL,p.le,p.lf,look.skin,shirt,gear,look.top);                                                 // lead arm
+  BLD=1;
+}
+function fighterRec(f){return f.g||(mode==='cpu'?fighterOf(f):null)} // whose looks/stance to use
+function stanceOf(f){const g=fighterRec(f);return g&&g.stance?Object.assign({},POSE.stance,g.stance):POSE.stance}
 function drawFighter(f){
   const p=getPose(f);
   FL=f.flash>0&&(f.flash>>1)%2===0;
   const main=f.main||(f.team==='blue'?'#1e74e8':'#dc322b'),dark=f.dark||(f.team==='blue'?'#0e4398':'#931b15');
-  const g=f.g||fighterOf(f),sc=S*((f.g||mode==='cpu')&&g?g.heightM/1.81:1); // drawn to the fighter's real height
-  const skin=(g&&g.skin)||'#d89c74';
-  // shoulder / hip lines sit across the spine (chest faces camera)
-  const sx=p.sh[0]-p.hip[0],sy=p.sh[1]-p.hip[1],L=Math.hypot(sx,sy)||1,px=-sy/L,py=sx/L;
-  const shL=[p.sh[0]+px*p.sw,p.sh[1]+py*p.sw],shR=[p.sh[0]-px*p.sw,p.sh[1]-py*p.sw];
-  const hpL=[p.hip[0]+px*p.hw,p.hip[1]+py*p.hw],hpR=[p.hip[0]-px*p.hw,p.hip[1]-py*p.hw];
+  const g=fighterRec(f),sc=S*(g?g.heightM/1.81:1); // drawn to the fighter's real height
+  const look=Object.assign({},LOOK_DEF,g&&g.look);
   // small hop while the blitz glides, so he's clearly off the mat
   const pressing=f.state==='press'||(f.state==='attack'&&f.move&&f.move.press);
   const hop=f.state==='attack'&&f.mk==='blitz'&&f.t>=6&&f.t<20?Math.sin((f.t-6)/14*Math.PI)*7:f.state==='attack'&&f.mk==='step'&&f.t>=2&&f.t<17?Math.sin((f.t-2)/15*Math.PI)*16:f.state==='attack'&&(f.mk==='back'||f.mk==='dbf')&&f.t>=1&&f.t<16?Math.sin((f.t-1)/15*Math.PI)*14:pressing?Math.abs(Math.sin((f.pt||0)*0.3))*4:0;
   ctx.save();ctx.translate(f.x,GROUND);
   ctx.fillStyle='rgba(0,0,0,.38)';ctx.beginPath();ctx.ellipse(0,2,46*sc*(1-hop/40),9*(1-hop/40),0,0,7);ctx.fill();
   ctx.translate(0,-hop*S);
-  ctx.scale(f.facing*sc,sc);ctx.lineCap='round';ctx.lineJoin='round';
-  legArt(hpR,p.bk,p.bf,'#14151c',dark);bootArt(p.bf,p.bfa,p.bfl,dark);     // far leg
-  torsoArt(p,shL,shR,hpL,hpR,px,py,main);
-  beltArt(p,px,py,main);
-  legArt(hpL,p.fk,p.ff,'#20222c',main);bootArt(p.ff,p.ffa,p.ffl,main);     // lead (kicking) leg
-  headArt(p.sh,p.hd,skin,main);
-  armArt(shR,p.re,p.rf,shadeC(skin,-0.1),shadeC(main,-0.12),dark);        // rear (reverse punch) arm
-  armArt(shL,p.le,p.lf,skin,main,main);                                    // lead arm
+  ctx.scale(f.facing*sc,sc);
+  drawBody(p,look,main,dark);
   ctx.restore();FL=false;
 }
 
@@ -1368,6 +1426,11 @@ function drawHUD(){
   const shown=[score[0],score[1]];
   if(state==='break'&&stTimer>subAt&&lastAward)shown[lastAward.i]-=lastAward.pts;
   box(14,'#1468d8',blueLab,shown[0]);box(W-164,'#c82a1e',redLab,shown[1]);
+  if(staOn()&&P1){
+    const bar=(x,v)=>{ctx.fillStyle='rgba(0,0,0,.55)';ctx.beginPath();ctx.roundRect(x,74,150,8,4);ctx.fill();
+      ctx.fillStyle=v<15?'#ff4a3a':v<40?'#ffc83a':'#43d17a';ctx.beginPath();ctx.roundRect(x+1,75,Math.max(0,148*v/100),6,3);ctx.fill()};
+    bar(14,P1.sta);bar(W-164,CPU.sta);
+  }
   ctx.fillStyle='rgba(0,0,0,.55)';ctx.beginPath();ctx.roundRect(W/2-62,12,124,58,10);ctx.fill();
   ctx.textAlign='center';
   if(golden){ctx.fillStyle='#ffd25a';ctx.font='16px Bungee, system-ui';ctx.fillText('GOLDEN',W/2,32);ctx.fillText('POINT',W/2,52)}
