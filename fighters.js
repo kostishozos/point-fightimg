@@ -1,7 +1,7 @@
 // Point Fighter roster: stats, looks and fighting stances. Loaded before game.js.
 // Ratings run 1-99. heightM is in metres.
 // look: skin, hair, facial (none/stubble/beard), top (tshirt/tank/rashguard), topColor, pants, stripe, build (slim/athletic/heavy)
-//       an empty topColor or stripe means "use the corner colour". Headgear, gloves and foot pads are always the corner colour.
+//       an empty topColor or stripe means "use the corner colour". Headgear, gloves and foot pads take the pants colour.
 // stance: the fighter's own fighting stance (from the stance editor); missing keys use the default stance.
 window.PF_FIGHTERS=[
   {name:'KONSTANTINOS CHOZOS',height:'1.85 m',heightM:1.85,flex:99,kickSpd:90,punchSpd:80,moveSpd:80,cardio:92,look:{skin:'#e6b48e',hair:'#0f0b09',facial:'none',top:'rashguard',topColor:'#46034f',pants:'#f2f2f2',stripe:'#4c0156',build:'athletic'},stance:{hip:[0,-56],hw:5,sh:[-4,-101],sw:13,hd:[0,-119],fk:[34,-28],ff:[46,0],ffa:0,ffl:12,bk:[-32,-28],bf:[-44,0],bfa:0,bfl:7,le:[29,-82],lf:[45,-91],re:[-31,-75],rf:[-23,-60]},main:'#1e8cff',dark:'#0b4fa8'},

@@ -348,7 +348,7 @@ function mix(a,b,t){
 const ease=t=>t<0?0:t>1?1:t*t*(3-2*t);
 
 function makeFighter(x,team){
-  return{x,facing:team==='blue'?1:-1,team,state:'idle',t:0,move:null,mk:'',hasHit:false,flash:0,walk:0,spd:1,ac:0,sta:100};
+  return{x,facing:team==='blue'?1:-1,team,state:'idle',t:0,move:null,mk:'',hasHit:false,flash:0,walk:0,spd:1,ac:0,sta:100,staMax:100};
 }
 const SPX=3.4;
 // tatami: 8 blocks across; at the fighters' line it runs from MAT_L to MAT_R
@@ -863,14 +863,15 @@ function scaledMove(f,k){
 }
 /* ---------- stamina (0-100) ----------
    every move costs stamina, a move that misses costs half as much again, and taking a hit costs 8.
-   It refills while you're not attacking, 2.5x faster during the referee's break after a point.
+   10% of everything you lose is gone for the match: it lowers your ceiling (staMax), so you can
+   only refill the other 90%. It refills slowly while you're not attacking, 2.5x faster during the break.
    Cardio (1-99) sets how fast it refills and how cheap moves are. Below 40 you're tired, below 15 exhausted. */
 const STA_COST={punch:6,fakeP:3,fakeK:3,blitz:12,kick:9,head:14,pkick:8,phead:10,def:10,step:8,lbf:6,hbf:6,dbf:7,back:10};
 const staOn=()=>mode==='cpu';
 function staLvl(f){return staOn()&&f&&f.sta!=null?(f.sta<15?2:f.sta<40?1:0):0}
 function cardioOf(f){const g=fighterRec(f);return g&&g.cardio||80}
-function spendSta(f,n){if(staOn()&&n&&f.sta!=null)f.sta=Math.max(0,f.sta-n*(1+(80-cardioOf(f))*0.01))}
-function regenSta(f,mult){if(staOn()&&f.sta!=null)f.sta=Math.min(100,f.sta+cardioOf(f)/99*0.11*mult)}
+function spendSta(f,n){if(!staOn()||!n||f.sta==null)return;const lost=Math.min(f.sta,n*(1+(80-cardioOf(f))*0.01));f.sta-=lost;f.staMax=Math.max(0,(f.staMax==null?100:f.staMax)-lost*0.1)}
+function regenSta(f,mult){if(staOn()&&f.sta!=null)f.sta=Math.min(f.staMax==null?100:f.staMax,f.sta+cardioOf(f)/99*0.03*mult)}
 function drawPortraits(){ // card portraits use the same renderer as the match
   document.querySelectorAll('canvas.fig[data-i]').forEach(c=>{
     const F=FIGHTERS[+c.dataset.i],d=2,k=d*0.44;if(!F)return;
@@ -920,12 +921,13 @@ function showRules(){
       <li><b>Kicks flex</b>: how high you can kick. If the opponent's head is above your reach, head kicks won't score.</li>
       <li><b>Kicks speed</b> and <b>Punches speed</b>: higher ratings make those strikes come out sooner.</li>
       <li><b>Movement speed</b>: higher ratings walk faster on the mat.</li>
-      <li><b>Cardio</b>: higher ratings refill stamina faster and make every move cost less.</li>
+      <li><b>Cardio</b>: higher ratings refill stamina faster and make every move cost less (so less is lost for good).</li>
     </ul>
     <h2 class="sec">Stamina</h2>
     <ul class="rules">
       <li>The bar under each score. Every move costs some, a miss costs extra, getting hit costs some too.</li>
-      <li>It refills while you're not attacking, and fast during the break after a point.</li>
+      <li>It refills slowly while you're not attacking, and faster during the break after a point.</li>
+      <li>10% of everything you lose is gone for the whole match (the dark red end of the bar). Spend 30 and you can only refill 27.</li>
       <li><b>Tired</b> (yellow): moves come out slower and take longer to recover from.</li>
       <li><b>Exhausted</b> (red): even slower, you walk slower and your kicks lose height.</li>
     </ul>
@@ -1337,7 +1339,7 @@ function headArt(sh,hd,look,gear){
     if(look.facial!=='beard'){ctx.strokeStyle=shadeC(skin,-0.45);ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x+4,y+2);ctx.quadraticCurveTo(x+6,y+4.5,x+9,y+4.2);ctx.stroke()}
     ctx.fillStyle=gear;ctx.strokeStyle=OL;ctx.lineWidth=1;ctx.beginPath();ctx.roundRect(x+6.4,y+6.4,4.6,2.6,1.2);ctx.fill();ctx.stroke();
   }
-  // padded headgear in the corner colour: crown, forehead bar and ear guard, face left open
+  // padded headgear in the gear colour: crown, forehead bar and ear guard, face left open
   ctx.beginPath();ctx.arc(x,y,13.8,150*D,322*D);ctx.arc(x,y,9.2,322*D,150*D,true);ctx.closePath();
   ctx.lineWidth=3;ctx.strokeStyle=OL;ctx.stroke();
   if(FL)ctx.fillStyle='#ffffff';
@@ -1360,7 +1362,7 @@ function armArt(s,e,f,skin,shirt,glove,top){
     ctx.fillStyle=OL;capsule(s,m,7.2*BLD,6.4*BLD);ctx.fill();
     ctx.fillStyle=roundGrad(s,m,5.6,shirt);capsule(s,m,5.7*BLD,4.9*BLD);ctx.fill();
   }
-  // glove in the corner colour
+  // glove in the gear colour
   const ang=Math.atan2(f[1]-e[1],f[0]-e[0]);
   ctx.save();ctx.translate(f[0],f[1]);ctx.rotate(ang);
   ctx.fillStyle=OL;ctx.beginPath();ctx.roundRect(-8.4,-5.8,7,11.6,3);ctx.fill();
@@ -1376,7 +1378,7 @@ function armArt(s,e,f,skin,shirt,glove,top){
   }
   ctx.restore();
 }
-// the whole fighter in his own coordinates (feet at 0, facing right); gear (headgear, gloves, foot pads) is the corner colour
+// the whole fighter in his own coordinates (feet at 0, facing right); gear (headgear, gloves, foot pads) is passed in
 function drawBody(p,look,gear,gearDark){
   const bd=BUILDS[look.build]||BUILDS.athletic;BLD=bd[0];
   const shirt=look.topColor||gear,stripe=look.stripe||gear,pants=look.pants||'#1b1d26';
@@ -1401,6 +1403,8 @@ function drawFighter(f){
   const main=f.main||(f.team==='blue'?'#1e74e8':'#dc322b'),dark=f.dark||(f.team==='blue'?'#0e4398':'#931b15');
   const g=fighterRec(f),sc=S*(g?g.heightM/1.81:1); // drawn to the fighter's real height
   const look=Object.assign({},LOOK_DEF,g&&g.look);
+  // headgear, gloves and foot pads match the fighter's pants when he has his own look
+  const gear=g&&g.look&&g.look.pants?g.look.pants:main,gearDark=g&&g.look&&g.look.pants?shadeC(g.look.pants,-0.35):dark;
   // small hop while the blitz glides, so he's clearly off the mat
   const pressing=f.state==='press'||(f.state==='attack'&&f.move&&f.move.press);
   const hop=f.state==='attack'&&f.mk==='blitz'&&f.t>=6&&f.t<20?Math.sin((f.t-6)/14*Math.PI)*7:f.state==='attack'&&f.mk==='step'&&f.t>=2&&f.t<17?Math.sin((f.t-2)/15*Math.PI)*16:f.state==='attack'&&(f.mk==='back'||f.mk==='dbf')&&f.t>=1&&f.t<16?Math.sin((f.t-1)/15*Math.PI)*14:pressing?Math.abs(Math.sin((f.pt||0)*0.3))*4:0;
@@ -1408,7 +1412,7 @@ function drawFighter(f){
   ctx.fillStyle='rgba(0,0,0,.38)';ctx.beginPath();ctx.ellipse(0,2,46*sc*(1-hop/40),9*(1-hop/40),0,0,7);ctx.fill();
   ctx.translate(0,-hop*S);
   ctx.scale(f.facing*sc,sc);
-  drawBody(p,look,main,dark);
+  drawBody(p,look,gear,gearDark);
   ctx.restore();FL=false;
 }
 
@@ -1427,9 +1431,11 @@ function drawHUD(){
   if(state==='break'&&stTimer>subAt&&lastAward)shown[lastAward.i]-=lastAward.pts;
   box(14,'#1468d8',blueLab,shown[0]);box(W-164,'#c82a1e',redLab,shown[1]);
   if(staOn()&&P1){
-    const bar=(x,v)=>{ctx.fillStyle='rgba(0,0,0,.55)';ctx.beginPath();ctx.roundRect(x,74,150,8,4);ctx.fill();
-      ctx.fillStyle=v<15?'#ff4a3a':v<40?'#ffc83a':'#43d17a';ctx.beginPath();ctx.roundRect(x+1,75,Math.max(0,148*v/100),6,3);ctx.fill()};
-    bar(14,P1.sta);bar(W-164,CPU.sta);
+    const bar=(x,v,mx)=>{ctx.fillStyle='rgba(0,0,0,.55)';ctx.beginPath();ctx.roundRect(x,74,150,8,4);ctx.fill();
+      ctx.fillStyle=v<15?'#ff4a3a':v<40?'#ffc83a':'#43d17a';ctx.beginPath();ctx.roundRect(x+1,75,Math.max(0,148*v/100),6,3);ctx.fill();
+      // the part lost for good: dark red from the ceiling to the end, with a white tick at the ceiling
+      if(mx<100){ctx.fillStyle='rgba(120,20,20,.9)';ctx.fillRect(x+1+148*mx/100,75,148*(100-mx)/100,6);ctx.fillStyle='#fff';ctx.fillRect(x+148*mx/100,73,2,10)}};
+    bar(14,P1.sta,P1.staMax);bar(W-164,CPU.sta,CPU.staMax);
   }
   ctx.fillStyle='rgba(0,0,0,.55)';ctx.beginPath();ctx.roundRect(W/2-62,12,124,58,10);ctx.fill();
   ctx.textAlign='center';
