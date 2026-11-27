@@ -269,9 +269,10 @@ const MOVES={
   // FINISHER (Konstantinos): jump spinning back kick to the head. Unlocked by a 3-point streak, worth 5.
   // Landed in its first frames on an opponent who is close and coming forward: K.O., he wins the match.
   fin:{name:'JUMP SPINNING BACK KICK',startup:16,active:6,recovery:22,reach:150,pts:5,lunge:2.6,hy:120,fin:1},
-  // FINISHER (Miltiadis): foot sweep. The lead foot hooks along the mat into the opponent's front ankle.
+  // FINISHER (Miltiadis): spinning back sweep. He spins round low and the BACK leg hooks the opponent's foot.
   // Low, so ducking doesn't help; jumping (step in, jump back, blitz in the air) does. Same K.O. rule.
-  sweep:{name:'FOOT SWEEP',startup:9,active:6,recovery:16,reach:126,pts:5,lunge:3,hy:8,fin:1}
+  // Timed while the opponent is kicking (standing on one leg), it takes the standing leg and beats the kick.
+  sweep:{name:'SPINNING SWEEP',startup:13,active:6,recovery:18,reach:128,pts:5,lunge:1.5,hy:8,fin:1}
 };
 // which move each finisher is, and how its K.O. ends
 const FIN_MOVE={jsbk:'fin',sweep:'sweep'};
@@ -292,14 +293,21 @@ const FIN_POSE={
     fk:[22,-56],ff:[10,-36],ffa:0.6,ffl:11,bk:[-38,-100],bf:[-86,-118],bfa:1.8,bfl:10,
     le:[20,-104],lf:[28,-118],re:[10,-96],rf:[20,-112]}
 };
-// foot sweep: weight shifts back, then the lead foot hooks low along the mat
+// spinning back sweep. wind faces the opponent; spin and hit are drawn turned round (back to him),
+// so there the sweeping BACK leg (bk/bf) reaches to the LEFT (negative x), toward the opponent
 const SWEEP_POSE={
-  wind:{hip:[-6,-54],hw:6,sh:[-14,-98],sw:12,hd:[-8,-116],
-    fk:[26,-30],ff:[40,-4],ffa:0.1,ffl:12,bk:[-34,-26],bf:[-46,0],bfa:0,bfl:7,
-    le:[16,-90],lf:[28,-104],re:[-16,-86],rf:[-4,-106]},
-  hit:{hip:[-8,-50],hw:5,sh:[-26,-94],sw:11,hd:[-24,-112],
-    fk:[44,-18],ff:[90,-6],ffa:0.25,ffl:13,bk:[-30,-24],bf:[-42,0],bfa:0,bfl:7,
-    le:[4,-92],lf:[16,-106],re:[-36,-84],rf:[-26,-102]}
+  // sinks low, rear shoulder turns away, looks back over it
+  wind:{hip:[-4,-48],hw:5,sh:[-16,-88],sw:11,hd:[-10,-106],
+    fk:[30,-24],ff:[44,0],ffa:0,ffl:12,bk:[-30,-22],bf:[-42,0],bfa:0,bfl:7,
+    le:[4,-86],lf:[16,-100],re:[-26,-82],rf:[-14,-100]},
+  // turned round, crouched on the lead leg, back leg starting to swing out low
+  spin:{hip:[2,-42],hw:5,sh:[16,-80],sw:11,hd:[24,-96],
+    fk:[24,-26],ff:[12,0],ffa:0,ffl:12,bk:[-22,-22],bf:[-50,-4],bfa:3.0,bfl:8,
+    le:[26,-66],lf:[38,-78],re:[8,-70],rf:[20,-84]},
+  // the sweep: body leans away and low, a hand down toward the mat, back heel hooks along the floor
+  hit:{hip:[8,-42],hw:4,sh:[34,-72],sw:10,hd:[46,-82],
+    fk:[20,-26],ff:[10,0],ffa:0,ffl:12,bk:[-40,-22],bf:[-94,-6],bfa:3.1,bfl:9,
+    le:[44,-50],lf:[52,-28],re:[28,-58],rf:[38,-36]}
 };
 const POSE={
   // wide, low side-on stance
@@ -557,7 +565,7 @@ function inHit(a,d){
     return false;
   }
   // leaning back for a defensive kick takes the head/body out of range
-  const evade=(d.state==='attack'&&d.mk==='def'&&d.t<d.move.startup+d.move.active)?25:0;
+  const evade=(a.mk!=='sweep'&&d.state==='attack'&&d.mk==='def'&&d.t<d.move.startup+d.move.active)?25:0;
   const reach=a.mk==='blitz'&&a.t<11?115:m.reach;
   // dipped low for the body backfist: anything aimed at the head goes over him
   if(m.hy>=100&&d.state==='attack'&&d.mk==='lbf'&&d.t>=3&&d.t<d.move.startup+d.move.active+6){
@@ -570,7 +578,7 @@ function inHit(a,d){
     return false;
   }
   // in the air (step in, jump back, blitz glide): the sweep finds nothing to hook
-  if(a.mk==='sweep'&&d.state==='attack'&&((d.mk==='step'&&d.t>=2&&d.t<17)||((d.mk==='back'||d.mk==='dbf')&&d.t>=1&&d.t<16)||(d.mk==='blitz'&&d.t>=6&&d.t<20))){
+  if(a.mk==='sweep'&&d.state==='attack'&&((d.mk==='step'&&d.t>=2&&d.t<17)||((d.mk==='back'||d.mk==='dbf')&&d.t>=1&&d.t<16)||(d.mk==='blitz'&&d.t>=6&&d.t<20)||(d.mk==='fin'&&d.t>=4&&d.t<d.move.startup+d.move.active+8))){
     if(dx>0&&dx<=reach&&!a.evaded){a.evaded=true;lastEvadeF=frame;addPop('JUMPED!',d.x,GROUND-175,'#c9a6ff',30)}
     return false;
   }
@@ -632,6 +640,7 @@ const FWD={punch:1,blitz:1,kick:1,head:1,step:1,lbf:1,hbf:1,pkick:1,phead:1,fake
 const KO_T=220,koT=()=>state==='end'?KO_T:KO_T-stTimer;
 const koType=()=>{if(ko==null)return null;const w=ko===0?P1:CPU,g=w&&fighterRec(w);return g&&g.finisher==='sweep'?'sweep':'jsbk'};
 const KO_HIT={jsbk:62,sweep:58}; // the frame the follow-up lands
+const oneLeg=d=>d.state==='press'||(d.state==='attack'&&['kick','head','pkick','phead','def','fakeK'].includes(d.mk)&&d.t>=2&&d.t<d.move.startup+d.move.active+4);
 const coming=(d,a)=>(d.state==='attack'&&FWD[d.mk])||(d.state==='press')||((d.vx||0)*Math.sign(a.x-d.x)>0.8);
 const parts=[],pops=[];
 const ROUND=60*60,WIN_AT=10;
@@ -858,8 +867,9 @@ function award(a,d){
   const perfect=m.fin&&Math.abs(d.x-a.x)<=118&&coming(d,a)&&a.t-m.startup<=1;
   hitstop=7;
   const ix=d.x-a.facing*8,iy=GROUND-m.hy*S;
-  const counter=(a.mk==='def'&&d.state==='attack'&&d.mk==='punch')||(a.mk==='dbf'&&d.state==='attack'&&d.mk==='punch')||(a.mk==='lbf'&&d.state==='attack'&&d.mk==='blitz')||(a.mk==='step'&&d.state==='attack'&&(d.mk==='kick'||d.mk==='pkick'||d.mk==='fakeK'))||(a.counterK&&(d.mk==='head'||d.mk==='phead'));
-  msg=(a===P1?'BLUE':'RED')+(perfect?' WINS BY K.O.!':counter?' COUNTERS!':' SCORES!');sub=(a.mk==='blitz'?(a.t<11?'BLITZ – BACKFIST':'BLITZ – DIRECT TO HEAD'):m.name)+'  +'+m.pts;msgCol=a===P1?'#5cc8ff':'#ff5a4a';
+  const legSwept=a.mk==='sweep'&&oneLeg(d);
+  const counter=legSwept||(a.mk==='def'&&d.state==='attack'&&d.mk==='punch')||(a.mk==='dbf'&&d.state==='attack'&&d.mk==='punch')||(a.mk==='lbf'&&d.state==='attack'&&d.mk==='blitz')||(a.mk==='step'&&d.state==='attack'&&(d.mk==='kick'||d.mk==='pkick'||d.mk==='fakeK'))||(a.counterK&&(d.mk==='head'||d.mk==='phead'));
+  msg=(a===P1?'BLUE':'RED')+(perfect?' WINS BY K.O.!':counter?' COUNTERS!':' SCORES!');sub=(legSwept?'SWEPT THE STANDING LEG':a.mk==='blitz'?(a.t<11?'BLITZ – BACKFIST':'BLITZ – DIRECT TO HEAD'):m.name)+'  +'+m.pts;msgCol=a===P1?'#5cc8ff':'#ff5a4a';
   // a counter (or a dodge just before the hit) shows its headline first; the points come in a beat later
   const dl=counter||frame-lastEvadeF<40?34:0;
   spawnHit(ix,iy,'+'+m.pts,dl);
@@ -1089,7 +1099,7 @@ function showRules(){
       <li>It's worth <b>5 points</b>, and you get one use. If the opponent scores, or you step out, it's gone.</li>
       <li><b>K.O.</b>: land it in its first moment on an opponent who's close and coming forward, and you win the match on the spot.</li>
       <li>Konstantinos: <b>jump spinning back kick</b> to the head. The body backfist still ducks under it. On a K.O. he finishes with a kick to the head of the kneeling opponent.</li>
-      <li>Miltiadis: <b>foot sweep</b>. Ducking doesn't help, being in the air does. On a K.O. he jumps on the fallen opponent and punches.</li>
+      <li>Miltiadis: <b>spinning sweep</b> with the back leg. The opponent goes down. Ducking doesn't help, being in the air does. Catch him while he's kicking and it takes his standing leg and beats the kick. On a K.O. he jumps on the fallen opponent and punches.</li>
     </ul>
     <h2 class="sec">Fighter stats (1-99)</h2>
     <ul class="rules">
@@ -1175,7 +1185,9 @@ function update(){
     separate();face();
     const a=inHit(P1,CPU),b=inHit(CPU,P1);
     // the defensive side kick is the counter to the reverse punch: it wins if both land
-    if(a&&b&&P1.mk==='def'&&CPU.mk==='punch')award(P1,CPU);
+    if(a&&b&&P1.mk==='sweep'&&oneLeg(CPU))award(P1,CPU); // swept the standing leg: his kick doesn't count
+    else if(a&&b&&CPU.mk==='sweep'&&oneLeg(P1))award(CPU,P1);
+    else if(a&&b&&P1.mk==='def'&&CPU.mk==='punch')award(P1,CPU);
     else if(a&&b&&CPU.mk==='def'&&P1.mk==='punch')award(CPU,P1);
     else if(a&&b){ // both land together: referee stops it, no point, back to the starting spots
       P1.hasHit=CPU.hasHit=true;sfx('clash');shake=6;hitstop=5;lastLoser=null;
@@ -1374,10 +1386,11 @@ function getPose(f){
     if(f.mk==='pdown')return mix(POSE.chamber,ST,ease(t/r));
     if(f.mk==='sweep'){
       const P=sweepPoses(f);
-      if(t<s*0.4)return mix(ST,P.wind,ease(t/(s*0.4)));
-      if(t<s)return mix(P.wind,P.hit,ease((t-s*0.4)/(s*0.6)));
+      if(t<3)return mix(ST,P.wind,ease(t/3));
+      if(t<s-3)return mix(P.wind,P.spin,ease((t-3)/(s-6)));
+      if(t<s)return mix(P.spin,P.hit,ease((t-s+3)/3));
       if(t<s+a)return P.hit;
-      return mix(P.hit,ST,ease((t-s-a)/r));
+      return mix(P.hit,ST,ease((t-s-a)/Math.min(r,12)));
     }
     if(f.mk==='fin'){
       const P=finPoses(f);
@@ -1616,14 +1629,14 @@ function finPoses(f){ // the fighter's own finisher poses (from the pose editor)
 }
 function sweepPoses(f){ // the fighter's own sweep poses (from the pose editor) over the defaults
   const g=fighterRec(f),o=g&&g.finisher==='sweep'&&g.finPose;if(!o)return SWEEP_POSE;
-  return{wind:Object.assign({},SWEEP_POSE.wind,o.wind),hit:Object.assign({},SWEEP_POSE.hit,o.hit)};
+  return{wind:Object.assign({},SWEEP_POSE.wind,o.wind),spin:Object.assign({},SWEEP_POSE.spin,o.spin),hit:Object.assign({},SWEEP_POSE.hit,o.hit)};
 }
-// the jump spinning back kick turns him all the way round: 0 = facing the opponent, PI = back to him
+// the jump spinning back kick and the spinning sweep turn him all the way round: 0 = facing the opponent, PI = back to him
 function spinOf(f){
-  if(f.state!=='attack'||f.mk!=='fin'||!f.move)return 0;
-  const t=f.t,s=f.move.startup,a=f.move.active;
-  if(t<4)return 0;
-  if(t<s)return Math.PI*(t-4)/(s-4);
+  if(f.state!=='attack'||(f.mk!=='fin'&&f.mk!=='sweep')||!f.move)return 0;
+  const t=f.t,s=f.move.startup,a=f.move.active,t0=f.mk==='sweep'?3:4;
+  if(t<t0)return 0;
+  if(t<s)return Math.PI*(t-t0)/(s-t0);
   if(t<s+a)return Math.PI;
   return Math.PI*(1+Math.min(1,(t-s-a)/12));
 }
