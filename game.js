@@ -923,7 +923,7 @@ function hostReadGuest(){
 
 function resetPositions(t){
   P1.x=START_L;CPU.x=START_R;round++;swept=0;
-  for(const f of[P1,CPU]){f.state='idle';f.move=null;f.t=0;f.flash=0}
+  for(const f of[P1,CPU]){f.state='idle';f.move=null;f.t=0;f.flash=0;f.lowR=1}
   face();lastLoser=null;ai.timer=0;ai.hold=diff.react*2; // CPU takes a beat after FIGHT!
   state='ready';stTimer=t;
 }
@@ -1104,7 +1104,9 @@ function headOutOfReach(a,d){
 }
 // how far his head has dropped from his own stance (1 = standing tall). Reverse punch, blitz and the body
 // backfist drop it a lot, and a dropped head is much easier to reach with a head kick.
-function headLow(d){
+// the head comes back up slowly: for about half a second after the dip it still counts as low
+function headLow(d){return Math.min(headLowNow(d),d.lowR==null?1:d.lowR)}
+function headLowNow(d){
   let r=1;
   try{const p=getPose(d),st=stanceOf(d);r=Math.max(0.4,Math.min(1,p.hd[1]/st.hd[1]))}catch(e){}
   return r<0.95?Math.pow(r,1.5):1;
@@ -1357,6 +1359,7 @@ function update(){
     if(mode!=='host')moveFighter(CPU,aiThink());
   }
   advance(P1);advance(CPU);
+  if(state==='fight')for(const f of[P1,CPU])f.lowR=Math.min(headLowNow(f),(f.lowR==null?1:f.lowR)+0.0035);
   for(const f of[P1,CPU]){f.vx=f.x-(f.lx==null?f.x:f.lx);f.lx=f.x}
   if(state==='fight'){
     separate();face();
