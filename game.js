@@ -238,9 +238,9 @@ const MOVES={
   // blitz: drop low, drive straight forward, backfist in the air, rear punch still in the air, land.
   // active the whole time in the air: backfist reach first, then the longer rear punch
   blitz:{name:'BLITZ',startup:8,active:12,recovery:24,reach:125,pts:1,lunge:7,hy:116},
-  // punch fake: same deep lead-leg step as the body backfist (back foot stays), lead hand rises, then he steps back.
-  // a reverse punch or blitz started right after it gets a 10% boost (see scaledMove)
-  fakeP:{name:'PUNCH FAKE',startup:6,active:2,recovery:10,reach:0,pts:0,lunge:0,step:24,fake:'punch'},
+  // punch fake: a short step forward, front foot then back foot the same distance, lead hand rises.
+  // a reverse punch or blitz thrown before he's settled back into stance gets a 10% boost (see scaledMove)
+  fakeP:{name:'PUNCH FAKE',startup:6,active:2,recovery:10,reach:0,pts:0,lunge:0,step:16,fake:'punch'},
   fakeK:{name:'KICK FAKE',startup:5,active:2,recovery:9,reach:0,pts:0,lunge:0,fake:'kick'},
   // press: lead leg stays up off the mat while he skips forward; kicks fire straight from the raised leg
   // the leg snaps back to the chamber quickly so a reverse punch can't fit cleanly between two press kicks
@@ -297,10 +297,14 @@ const POSE={
   bPunch:{hip:[8,-46],hw:3,sh:[46,-74],sw:5,hd:[62,-84],
     fk:[26,-27],ff:[14,-8],ffa:0.2,ffl:12,bk:[-26,-26],bf:[-58,-16],bfa:-0.4,bfl:10,
     le:[66,-92],lf:[60,-114],re:[78,-96],rf:[110,-112]},
-  // punch fake: deep lead-leg step (back foot planted where it was), lead hand rises diagonally forward
-  fakeP:{hip:[10,-48],hw:6,sh:[14,-98],sw:12,hd:[22,-116],
-    fk:[50,-28],ff:[72,0],ffa:0,ffl:12,bk:[-34,-22],bf:[-68,0],bfa:0,bfl:7,
-    le:[54,-98],lf:[74,-114],re:[8,-84],rf:[20,-104]},
+  // punch fake: front foot has stepped, back foot still behind (halfway through the step)
+  fakeA:{hip:[4,-52],hw:6,sh:[8,-98],sw:12,hd:[16,-116],
+    fk:[42,-28],ff:[54,0],ffa:0,ffl:12,bk:[-36,-26],bf:[-52,0],bfa:0,bfl:7,
+    le:[40,-96],lf:[58,-110],re:[0,-84],rf:[12,-104]},
+  // then the back foot follows the same distance; lead hand up diagonally forward
+  fakeP:{hip:[4,-54],hw:6,sh:[8,-98],sw:12,hd:[16,-116],
+    fk:[36,-28],ff:[46,0],ffa:0,ffl:12,bk:[-30,-28],bf:[-44,0],bfa:0,bfl:7,
+    le:[44,-98],lf:[64,-114],re:[2,-84],rf:[14,-104]},
   // kick fake: lead leg lifts diagonally forward
   fakeK:{hip:[-2,-58],hw:6,sh:[-8,-100],sw:13,hd:[-2,-118],
     fk:[34,-62],ff:[54,-44],ffa:0.6,ffl:12,bk:[-28,-30],bf:[-40,0],bfa:0,bfl:7,
@@ -396,6 +400,10 @@ function handleButtons(f){
     else if(buf.hbf>0){begin(f,'hbf');buf.hbf=0}
     return;
   }
+  // still settling back into stance after a punch fake: a reverse punch or blitz cuts it short, with the boost
+  if(f.state==='attack'&&f.mk==='fakeP'&&f.t>=f.move.startup&&(buf.punch>0||buf.blitz>0)&&buf.fake<=0){
+    f.state='idle';f.move=null;f.feint=true;
+  }
   if(buf.fake>0&&f.state==='attack'&&f.t<4){
     if(f.mk==='punch'){f.mk='fakeP';f.move=scaledMove(f,'fakeP');f.ac++;buf.fake=0}
     else if(f.mk==='kick'){f.mk='fakeK';f.move=scaledMove(f,'fakeK');f.ac++;buf.fake=0}
@@ -421,7 +429,6 @@ function advance(f){
   const m=f.move;
   if(f.t>=m.startup+m.active+m.recovery){
     if(!m.fake&&!m.noHit&&!f.hasHit)spendSta(f,(STA_COST[f.mk]||0)*0.5); // a miss tires you more
-    if(f.mk==='fakeP')f.fakeEnd=frame; // opens the window for the boosted follow-up
     const wasPress=m.press;f.state='idle';f.move=null;
     if(wasPress){if(f.pressing)f.state='press';else begin(f,'pdown')} // leg goes back up, or comes down
   }
@@ -444,7 +451,9 @@ function moveFighter(f,dir){
     }else if(f.mk==='blitz'){
       if(f.t>=6&&f.t<20)f.x+=m.lunge*f.facing;
       else if(f.t>=20&&f.t<36)f.x+=4.5*f.facing; // running on into the opponent
-    }else if(f.mk==='lbf'||f.mk==='hbf'||f.mk==='fakeP'){
+    }else if(f.mk==='fakeP'){
+      if(f.t<m.startup)f.x+=m.step/m.startup*f.facing; // both feet step forward, he stays there
+    }else if(f.mk==='lbf'||f.mk==='hbf'){
       // lead foot steps deep, back foot stays: the body shifts forward, then comes back as the lead leg returns
       if(f.t<m.startup)f.x+=m.step/m.startup*f.facing;
       else if(f.t>=m.startup+m.active)f.x-=m.step/m.recovery*f.facing;
@@ -851,7 +860,6 @@ function headOutOfReach(a,d){
 }
 // punches/kicks speed: each point above 70 shaves 0.5% off startup; each point below adds 0.5%.
 // movement speed: each point above 70 adds 0.4% to walking speed (70 = baseline).
-const FEINT_WIN=20; // frames after a punch fake ends in which the follow-up is boosted
 const PUNCH_MOVES={punch:1,blitz:1,lbf:1,hbf:1,step:1,dbf:1,fakeP:1};
 const KICK_MOVES={kick:1,head:1,pkick:1,phead:1,def:1,fakeK:1};
 function moveSpdMult(f){const g=fighterOf(f);return mode==='cpu'&&g?(1+(g.moveSpd-70)*0.004)*(staLvl(f)===2?0.85:1):1}
@@ -860,9 +868,9 @@ function scaledMove(f,k){
   if(mode!=='cpu')return base;
   const g=fighterOf(f),isK=KICK_MOVES[k],isP=PUNCH_MOVES[k],lv=staLvl(f);
   let s=base.startup,r=base.recovery,lunge=base.lunge;
-  // reverse punch or blitz within 1/3 s after a punch fake: 10% faster out and 10% further forward
-  const boost=(k==='punch'||k==='blitz')&&f.fakeEnd!=null&&frame-f.fakeEnd<=FEINT_WIN;
-  f.fakeEnd=null;
+  // reverse punch or blitz thrown out of a punch fake, before he's back in stance: 10% faster and 10% further
+  const boost=(k==='punch'||k==='blitz')&&!!f.feint;
+  f.feint=false;
   if(boost){lunge*=1.1;addPop('FEINT +10%',f.x,GROUND-170,'#c9a6ff',22)}
   if(g&&(isK||isP))s=Math.max(1,Math.round(s*(1-((isK?g.kickSpd:g.punchSpd)-70)*0.005)));
   // tired: moves start 10% later and recover 15% slower; exhausted: double that
@@ -924,7 +932,7 @@ function showRules(){
       <li>Backfist to the body ducks under head strikes and beats the blitz.</li>
       <li>Step in jumps over a side kick (or a kick fake) and counters it.</li>
       <li>A side kick thrown before a head-kicking leg lifts jams it.</li>
-      <li>Punch fake: a deep step with the lead leg. A reverse punch or blitz right after it is 10% faster and goes 10% further.</li>
+      <li>Punch fake: a short step forward with both feet. A reverse punch or blitz thrown before you're back in stance is 10% faster and goes 10% further.</li>
     </ul>
     <h2 class="sec">Fighter stats (1-99)</h2>
     <ul class="rules">
@@ -1197,6 +1205,12 @@ function getPose(f){
       return mix(P,ST,ease((t-s-a)/r));
     }
     if(f.mk==='pdown')return mix(POSE.chamber,ST,ease(t/r));
+    if(f.mk==='fakeP'){
+      if(t<s/2)return mix(ST,POSE.fakeA,ease(t/(s/2)));
+      if(t<s)return mix(POSE.fakeA,POSE.fakeP,ease((t-s/2)/(s/2)));
+      if(t<s+a)return POSE.fakeP;
+      return mix(POSE.fakeP,ST,ease((t-s-a)/r));
+    }
     if(m.fake){
       const P=POSE[f.mk];
       if(t<s)return mix(ST,P,ease(t/s));
