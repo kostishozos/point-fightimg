@@ -268,8 +268,14 @@ const MOVES={
   dbf:{name:'DEFENSIVE BACKFIST',startup:6,active:9,recovery:9,reach:150,pts:1,hy:112},
   // FINISHER (Konstantinos): jump spinning back kick to the head. Unlocked by a 3-point streak, worth 5.
   // Landed in its first frames on an opponent who is close and coming forward: K.O., he wins the match.
-  fin:{name:'JUMP SPINNING BACK KICK',startup:16,active:6,recovery:22,reach:150,pts:5,lunge:2.6,hy:120,fin:1}
+  fin:{name:'JUMP SPINNING BACK KICK',startup:16,active:6,recovery:22,reach:150,pts:5,lunge:2.6,hy:120,fin:1},
+  // FINISHER (Miltiadis): foot sweep. The lead foot hooks along the mat into the opponent's front ankle.
+  // Low, so ducking doesn't help; jumping (step in, jump back, blitz in the air) does. Same K.O. rule.
+  sweep:{name:'FOOT SWEEP',startup:9,active:6,recovery:16,reach:126,pts:5,lunge:3,hy:8,fin:1}
 };
+// which move each finisher is, and how its K.O. ends
+const FIN_MOVE={jsbk:'fin',sweep:'sweep'};
+const finMove=f=>{const g=fighterRec(f);return g&&FIN_MOVE[g.finisher]||'fin'};
 // finisher key poses. air and kick are drawn turned around (his back to the opponent), so in these two
 // the kicking leg (bk/bf) reaches to the LEFT (negative x), toward the opponent
 const FIN_POSE={
@@ -285,6 +291,15 @@ const FIN_POSE={
   kick:{hip:[6,-82],hw:4,sh:[34,-96],sw:11,hd:[44,-104],
     fk:[22,-56],ff:[10,-36],ffa:0.6,ffl:11,bk:[-38,-100],bf:[-86,-118],bfa:1.8,bfl:10,
     le:[20,-104],lf:[28,-118],re:[10,-96],rf:[20,-112]}
+};
+// foot sweep: weight shifts back, then the lead foot hooks low along the mat
+const SWEEP_POSE={
+  wind:{hip:[-6,-54],hw:6,sh:[-14,-98],sw:12,hd:[-8,-116],
+    fk:[26,-30],ff:[40,-4],ffa:0.1,ffl:12,bk:[-34,-26],bf:[-46,0],bfa:0,bfl:7,
+    le:[16,-90],lf:[28,-104],re:[-16,-86],rf:[-4,-106]},
+  hit:{hip:[-8,-50],hw:5,sh:[-26,-94],sw:11,hd:[-24,-112],
+    fk:[44,-18],ff:[90,-6],ffa:0.25,ffl:13,bk:[-30,-24],bf:[-42,0],bfa:0,bfl:7,
+    le:[4,-92],lf:[16,-106],re:[-36,-84],rf:[-26,-102]}
 };
 const POSE={
   // wide, low side-on stance
@@ -357,6 +372,18 @@ const POSE={
   dbfAir:{hip:[-18,-64],hw:5,sh:[0,-104],sw:10,hd:[10,-120],
     fk:[10,-42],ff:[16,-18],ffa:0.2,ffl:12,bk:[-36,-44],bf:[-46,-20],bfa:-0.2,bfl:8,
     le:[34,-88],lf:[65,-85],re:[-8,-90],rf:[4,-110]},
+  // flat on his back on the mat (local +x is toward the man who put him there)
+  down:{hip:[-8,-10],hw:4,sh:[-50,-14],sw:8,hd:[-72,-14],
+    fk:[16,-26],ff:[40,-6],ffa:0.3,ffl:12,bk:[12,-20],bf:[34,-2],bfa:0.2,bfl:7,
+    le:[-36,-32],lf:[-22,-24],re:[-62,-8],rf:[-44,-4]},
+  // K.O. finale: kneeling over the swept opponent, rear fist cocked...
+  mount:{hip:[0,-34],hw:6,sh:[10,-72],sw:11,hd:[18,-86],
+    fk:[30,-18],ff:[46,0],ffa:0,ffl:12,bk:[-14,-4],bf:[-40,0],bfa:0,bfl:7,
+    le:[30,-58],lf:[42,-48],re:[-14,-90],rf:[-4,-110]},
+  // ...and driving it down
+  gnp:{hip:[2,-32],hw:6,sh:[18,-64],sw:10,hd:[26,-76],
+    fk:[30,-18],ff:[46,0],ffa:0,ffl:12,bk:[-14,-4],bf:[-40,0],bfa:0,bfl:7,
+    le:[24,-56],lf:[34,-46],re:[30,-44],rf:[50,-20]},
   // knocked out: dropped to one knee, hands down
   ko:{hip:[-10,-30],hw:6,sh:[-4,-68],sw:12,hd:[6,-80],
     fk:[26,-22],ff:[40,0],ffa:0,ffl:12,bk:[-26,-6],bf:[-50,0],bfa:0,bfl:7,
@@ -402,7 +429,7 @@ function begin(f,k){f.state='attack';f.mk=k;f.move=scaledMove(f,k);f.t=0;f.hasHi
 // jams the head kick (it can't score) and the side kick counts as a counter.
 function onStart(f){
   f.jammed=false;f.evaded=false;f.counterK=false;
-  if(f.mk==='fin'){const i=f===P1?0:1;finReady[i]=false;streak[i]=0;addPop('FINISHER!',f.x,GROUND-185,'#ffd25a',30)}
+  if(MOVES[f.mk]&&MOVES[f.mk].fin){const i=f===P1?0:1;finReady[i]=false;streak[i]=0;addPop('FINISHER!',f.x,GROUND-185,'#ffd25a',30)}
   const o=f===P1?CPU:P1;
   if(o&&(f.mk==='kick'||f.mk==='pkick')&&o.state==='attack'&&(o.mk==='head'||o.mk==='phead')&&o.t<=4){o.jammed=true;f.counterK=true}
 }
@@ -441,7 +468,7 @@ function handleButtons(f){
     else if(f.mk==='kick'){f.mk='fakeK';f.move=scaledMove(f,'fakeK');f.ac++;buf.fake=0}
   }
   const fk=buf.fake>0;
-  if(buf.fin>0&&canFin(f)&&startAttack(f,'fin')){buf.fin=0;return}
+  if(buf.fin>0&&canFin(f)&&startAttack(f,finMove(f))){buf.fin=0;return}
   if(buf.punch>0&&startAttack(f,fk?'fakeP':'punch')){buf.punch=0;if(fk)buf.fake=0}
   else if(buf.kick>0&&startAttack(f,fk?'fakeK':'kick')){buf.kick=0;if(fk)buf.fake=0}
   else if(buf.def>0&&startAttack(f,'def'))buf.def=0;
@@ -542,6 +569,11 @@ function inHit(a,d){
     if(dx>0&&dx<=reach&&!a.evaded){a.evaded=true;lastEvadeF=frame;addPop('MISSED!',d.x,GROUND-175,'#c9a6ff',30)}
     return false;
   }
+  // in the air (step in, jump back, blitz glide): the sweep finds nothing to hook
+  if(a.mk==='sweep'&&d.state==='attack'&&((d.mk==='step'&&d.t>=2&&d.t<17)||((d.mk==='back'||d.mk==='dbf')&&d.t>=1&&d.t<16)||(d.mk==='blitz'&&d.t>=6&&d.t<20))){
+    if(dx>0&&dx<=reach&&!a.evaded){a.evaded=true;lastEvadeF=frame;addPop('JUMPED!',d.x,GROUND-175,'#c9a6ff',30)}
+    return false;
+  }
   if(dx>0&&dx<=reach-evade&&jumpsOver(a,d)){ // jumped over it
     if(!a.evaded){a.evaded=true;lastEvadeF=frame;addPop('STEP IN!',d.x,GROUND-175,'#c9a6ff',30)}
     return false;
@@ -577,7 +609,7 @@ function aiThink(){
   if((c.x<MAT_L+60&&ai.mx<0)||(c.x>MAT_R-60&&ai.mx>0))ai.mx=toward; // don't back off the mat
   const ag=diff.aggr*(staLvl(p)===2?1.8:1)*(staLvl(c)===2?0.5:1);
   if(c.state==='idle'){
-    if(canFin(c)&&adx>=95&&adx<150&&Math.random()<ag*3)startAttack(c,'fin');
+    if(canFin(c)&&adx>=95&&adx<150&&Math.random()<ag*3)startAttack(c,finMove(c));
     else if(adx<200&&adx>90&&Math.random()<ag*2.5)startAttack(c,'punch');
     else if(adx>=110&&adx<175&&Math.random()<ag*2)startAttack(c,'kick');
     else if(adx>=110&&adx<165&&Math.random()<ag)startAttack(c,'head');
@@ -596,6 +628,10 @@ const hasFin=f=>{const g=f&&fighterRec(f);return !!(g&&g.finisher)};
 const canFin=f=>hasFin(f)&&finReady[f===P1?0:1];
 // moves that carry the opponent forward into you
 const FWD={punch:1,blitz:1,kick:1,head:1,step:1,lbf:1,hbf:1,pkick:1,phead:1,fakeP:1};
+// K.O. finale, frame by frame after the knockout (koT counts up while stTimer counts down, so it stays in sync online)
+const KO_T=220,koT=()=>state==='end'?KO_T:KO_T-stTimer;
+const koType=()=>{if(ko==null)return null;const w=ko===0?P1:CPU,g=w&&fighterRec(w);return g&&g.finisher==='sweep'?'sweep':'jsbk'};
+const KO_HIT={jsbk:62,sweep:58}; // the frame the follow-up lands
 const coming=(d,a)=>(d.state==='attack'&&FWD[d.mk])||(d.state==='press')||((d.vx||0)*Math.sign(a.x-d.x)>0.8);
 const parts=[],pops=[];
 const ROUND=60*60,WIN_AT=10;
@@ -724,7 +760,7 @@ function applySnap(sn){
   const newRound=sn.rd!==seenRound;seenRound=sn.rd;
   [P1,CPU].forEach((f,i)=>{
     const a=sn.f[i];if(!Array.isArray(a))return;
-    if(f===CPU&&!newRound){f.flash=num(a[5],0);return} // my own fighter: keep my local version
+    if(f===CPU&&!newRound&&!(sn.ko===0||sn.ko===1)){f.flash=num(a[5],0);return} // my own fighter: keep my local version (not in a K.O. finale)
     const wasAtk=f.state==='attack',pmk=f.mk,pt=f.t;
     f.x=num(a[0],f.x);f.facing=a[1]<0?-1:1;
     f.mk=MOVES[a[3]]?a[3]:'';f.state=a[2]===2?'press':a[2]&&f.mk?'attack':'idle';f.move=f.state==='attack'?mvFrom(f.mk,a[7]):null;
@@ -765,9 +801,9 @@ function guestUpdate(){
     CPU.pressing=pressHeld();
     handleButtons(CPU);
     moveFighter(CPU,readMove());
-  }else if(state==='break')moveFighter(CPU,0);
+  }else if(state==='break'&&ko==null)moveFighter(CPU,0);
   if(state==='break')regenSta(CPU,2.5);else if(state==='fight'&&CPU.state==='idle')regenSta(CPU,1);
-  advance(CPU);separate();
+  advance(CPU);if(ko==null)separate();
   if(CPU.state==='idle')CPU.facing=P1.x>CPU.x?1:-1;
   if(buf.punch>0)buf.punch--;if(buf.kick>0)buf.kick--;if(buf.def>0)buf.def--;if(buf.fake>0)buf.fake--;if(buf.blitz>0)buf.blitz--;if(buf.head>0)buf.head--;if(buf.step>0)buf.step--;if(buf.lbf>0)buf.lbf--;if(buf.hbf>0)buf.hbf--;if(buf.back>0)buf.back--;if(buf.dbf>0)buf.dbf--;if(buf.fakeP>0)buf.fakeP--;if(buf.fakeK>0)buf.fakeK--;if(buf.fin>0)buf.fin--;
   mroom.presence({me:[Math.round(CPU.x*10)/10,CPU.state==='attack'?1:CPU.state==='press'?2:0,CPU.mk||'',CPU.t,CPU.ac,CPU.facing,round_g(),Math.round(CPU.walk*100)/100,CPU.pushT!=null&&frame-CPU.pushT<15?1:0,SET.fighter,Math.round(CPU.sta*10)/10,Math.round(CPU.staMax*10)/10,mvT(CPU)]}).catch(()=>{});
@@ -792,7 +828,7 @@ function hostReadGuest(){
   if(ac!==CPU.ac){CPU.ac=ac;if(atk&&mk){CPU.state='attack';CPU.mk=mk;CPU.move=mvFrom(mk,a[12]);CPU.t=num(a[3],0);CPU.hasHit=false;onStart(CPU);sfx('whoosh')}}
   if(atk&&mk&&CPU.state==='attack'&&CPU.mk===mk)CPU.t=num(a[3],CPU.t);
   else if(!atk&&CPU.state==='attack'){CPU.state='idle';CPU.move=null}
-  if(state==='fight'||state==='break')CPU.x=Math.max(XMIN,Math.min(XMAX,num(a[0],CPU.x)));
+  if(state==='fight'||(state==='break'&&ko==null))CPU.x=Math.max(XMIN,Math.min(XMAX,num(a[0],CPU.x)));
   CPU.facing=a[5]<0?-1:1;CPU.walk=num(a[7],CPU.walk);CPU.remotePush=a[8]===1;
   netFi=[SET.fighter,validFi(a[9])];
   if(a[10]!=null){CPU.sta=clampSta(a[10]);CPU.staMax=clampSta(a[11])} // Red's stamina comes from the guest
@@ -830,8 +866,47 @@ function award(a,d){
   hitSeq++;lastHit={x:ix,y:iy,t:'+'+m.pts,d:dl};
   lastAward={i,pts:m.pts};
   state='break';stTimer=95+dl;subAt=dl?95:999;
-  if(perfect){ko=i;stTimer=170;subAt=999;hitstop=16;shake=18}
+  if(perfect){ko=i;stTimer=KO_T;subAt=999;hitstop=16;shake=18;a.koX0=null}
   if(score[i]>=WIN_AT||golden||perfect)pendingEnd=true;
+}
+// host side: moves both fighters through the K.O. finale (the guest gets the positions in the snapshot)
+function koFinale(){
+  const L=lastLoser,Wn=L===P1?CPU:P1,dir=Math.sign(L.x-Wn.x)||1,t=koT(),type=koType();
+  if(type==='jsbk'){
+    if(t<30)L.x+=(30-t)*0.22*dir; // the kick throws him back, then he drops to a knee
+    if(t>=24){Wn.state='idle';Wn.move=null;if(Wn.koX0==null)Wn.koX0=Wn.x}
+    if(t>=24&&t<50)Wn.x=Wn.koX0+(L.x-dir*125-Wn.koX0)*ease((t-24)/26); // walks into kicking range
+    if(t===KO_HIT.jsbk){sfx('hit');shake=16;hitstop=6;rumble()}
+  }else{
+    if(t<10)L.x+=dir*0.6;
+    if(t>=24){Wn.state='idle';Wn.move=null;if(Wn.koX0==null)Wn.koX0=Wn.x}
+    if(t>=24&&t<44)Wn.x=Wn.koX0+(L.x+dir*34-Wn.koX0)*((t-24)/20); // jumps on him
+    if(t===KO_HIT.sweep){sfx('hit');shake=16;hitstop=6;rumble()}
+  }
+  L.x=Math.max(XMIN,Math.min(XMAX,L.x));Wn.x=Math.max(XMIN,Math.min(XMAX,Wn.x));
+  Wn.facing=dir;L.facing=-dir;
+}
+// the poses of the K.O. finale for the winner and the loser
+function koPose(f){
+  const t=koT(),type=koType(),w=ko===0?P1:CPU,ST=stanceOf(f);
+  if(f!==w){
+    if(type==='sweep')return t<12?mix(POSE.hurt,POSE.down,ease(t/12)):POSE.down;
+    if(t<KO_HIT.jsbk)return mix(POSE.hurt,POSE.ko,ease(t/24));
+    return mix(POSE.ko,POSE.down,ease((t-KO_HIT.jsbk)/14));
+  }
+  if(t<24)return null; // still finishing the finisher itself
+  if(type==='jsbk'){
+    if(t<50)return ST;
+    if(t<KO_HIT.jsbk-6)return mix(ST,POSE.chamber,ease((t-50)/6));
+    if(t<KO_HIT.jsbk)return mix(POSE.chamber,POSE.kick,ease((t-KO_HIT.jsbk+6)/6));
+    if(t<KO_HIT.jsbk+18)return POSE.kick;
+    return mix(POSE.kick,ST,ease((t-KO_HIT.jsbk-18)/12));
+  }
+  if(t<44)return POSE.stepAir;
+  if(t<KO_HIT.sweep-6)return mix(POSE.stepAir,POSE.mount,ease((t-44)/6));
+  if(t<KO_HIT.sweep)return mix(POSE.mount,POSE.gnp,ease((t-KO_HIT.sweep+6)/6));
+  if(t<KO_HIT.sweep+20)return POSE.gnp;
+  return mix(POSE.gnp,POSE.mount,ease((t-KO_HIT.sweep-20)/10));
 }
 function pushOut(f){
   lastLoser=null;hitstop=4;sfx('bell');
@@ -919,9 +994,11 @@ const STAT_ROWS=[['flex','Kicks flex'],['kickSpd','Kicks speed'],['punchSpd','Pu
 const FIGHTERS=window.PF_FIGHTERS||[]; // the roster lives in fighters.js
 // kick flexibility: your max kick height = flex * 0.0115 * your own height (99 flex reaches 1.14 x your height).
 // if the opponent's head (~0.92 of their height) is higher than that, head kicks can't score on them.
+// vs the computer: you pick who you are and who you fight on the Fighters page
+function oppIdx(){const o=SET.opp;if(Number.isInteger(o)&&FIGHTERS[o]&&o!==SET.fighter)return o;return FIGHTERS.findIndex((_,i)=>i!==SET.fighter)}
 function fighterOf(f){
   if(mode!=='cpu'){const i=f===P1?netFi[0]:netFi[1];return i!=null?FIGHTERS[i]:null} // online: each player's own pick
-  const i=f===P1?SET.fighter:1-SET.fighter;return FIGHTERS[i]
+  return FIGHTERS[f===P1?SET.fighter:oppIdx()]
 }
 function headOutOfReach(a,d){
   const af=fighterOf(a),df=fighterOf(d);
@@ -930,7 +1007,7 @@ function headOutOfReach(a,d){
 // punches/kicks speed: each point above 70 shaves 0.5% off startup; each point below adds 0.5%.
 // movement speed: each point above 70 adds 0.4% to walking speed (70 = baseline).
 const PUNCH_MOVES={punch:1,blitz:1,lbf:1,hbf:1,step:1,dbf:1,fakeP:1};
-const KICK_MOVES={kick:1,head:1,pkick:1,phead:1,def:1,fakeK:1,fin:1};
+const KICK_MOVES={kick:1,head:1,pkick:1,phead:1,def:1,fakeK:1,fin:1,sweep:1};
 function moveSpdMult(f){const g=fighterOf(f);return g?(1+(g.moveSpd-70)*0.004)*(staLvl(f)===2?0.85:1):1}
 function scaledMove(f,k){
   const base=MOVES[k];
@@ -952,7 +1029,7 @@ function scaledMove(f,k){
    10% of everything you lose is gone for the match: it lowers your ceiling (staMax), so you can
    only refill the other 90%. It refills slowly while you're not attacking, 2.5x faster during the break.
    Cardio (1-99) sets how fast it refills and how cheap moves are. Below 40 you're tired, below 15 exhausted. */
-const STA_COST={punch:6,fakeP:3,fakeK:3,blitz:12,kick:9,head:14,pkick:8,phead:10,def:10,step:8,lbf:6,hbf:6,dbf:7,back:10,fin:16};
+const STA_COST={punch:6,fakeP:3,fakeK:3,blitz:12,kick:9,head:14,pkick:8,phead:10,def:10,step:8,lbf:6,hbf:6,dbf:7,back:10,fin:16,sweep:12};
 const staOn=()=>true; // vs CPU and online alike
 function staLvl(f){return staOn()&&f&&f.sta!=null?(f.sta<15?2:f.sta<40?1:0):0}
 function cardioOf(f){const g=fighterRec(f);return g&&g.cardio||80}
@@ -969,14 +1046,16 @@ function drawPortraits(){ // card portraits use the same renderer as the match
 }
 function fighterCard(f,i){
   const stats=STAT_ROWS.map(([k,l])=>`<div class="st"><span>${l}</span><div class="bar"><span style="width:${f[k]}%"></span></div><span class="val">${f[k]}</span></div>`).join('');
-  const sel=SET.fighter===i;
-  const btn=sel?`<button class="tog" style="background:#2a9d5c;min-width:120px" disabled>✓ Selected</button>`:`<button class="tog" data-pick="${i}" style="min-width:120px">Select</button>`;
-  return `<div class="fcard" style="${sel?'border-color:#7be3a0;box-shadow:0 0 0 2px rgba(123,227,160,.35)':''}"><div class="fhead"><canvas class="fig" data-i="${i}" style="width:84px;height:100px" aria-hidden="true"></canvas><div><h3>${f.name}</h3><p class="ht">Height · ${f.height}</p></div></div>${stats}<div style="text-align:right;margin-top:8px">${btn}</div></div>`;
+  const sel=SET.fighter===i,opp=!sel&&oppIdx()===i;
+  const btn=(sel?`<button class="tog" style="background:#2a9d5c;min-width:120px" disabled>✓ You</button>`:`<button class="tog" data-pick="${i}" style="min-width:120px">Play as</button>`)
+    +(sel?'':opp?` <button class="tog" style="background:#c82a1e;min-width:120px" disabled>✓ Opponent</button>`:` <button class="tog" data-opp="${i}" style="min-width:120px">Fight him</button>`);
+  const fin=f.finisher?`<p class="ht" style="color:#ffd25a;margin:6px 0 0">Finisher · ${MOVES[FIN_MOVE[f.finisher]].name.toLowerCase()}</p>`:'';
+  return `<div class="fcard" style="${sel?'border-color:#7be3a0;box-shadow:0 0 0 2px rgba(123,227,160,.35)':opp?'border-color:#ff7a6a':''}"><div class="fhead"><canvas class="fig" data-i="${i}" style="width:84px;height:100px" aria-hidden="true"></canvas><div><h3>${f.name}</h3><p class="ht">Height · ${f.height}</p></div></div>${stats}${fin}<div style="text-align:right;margin-top:8px">${btn}</div></div>`;
 }
 function showFighters(){
   state='menu';
   overlay.innerHTML=`<p class="big" style="color:#c9a6ff">FIGHTERS</p>
-    <p class="how" style="margin:0 0 6px">Pick who you fight as. You're Blue on the mat; the other fighter is the one you fight.</p>
+    <p class="how" style="margin:0 0 6px">Pick who you are (<b>Play as</b>) and who the computer is (<b>Fight him</b>). Online, your friend picks his own fighter.</p>
     ${FIGHTERS.map((f,i)=>fighterCard(f,i)).join('')}
     <button class="pick grey" data-menu="1" style="margin-top:6px">Back</button>`;
   overlay.classList.remove('hide');
@@ -1008,7 +1087,8 @@ function showRules(){
       <li>Some fighters have a finisher. Score <b>3 points in a row</b> without the opponent scoring to unlock it (the pips under your stamina bar).</li>
       <li>It's worth <b>5 points</b>, and you get one use. If the opponent scores, or you step out, it's gone.</li>
       <li><b>K.O.</b>: land it in its first moment on an opponent who's close and coming forward, and you win the match on the spot.</li>
-      <li>Konstantinos: <b>jump spinning back kick</b> to the head. The body backfist still ducks under it.</li>
+      <li>Konstantinos: <b>jump spinning back kick</b> to the head. The body backfist still ducks under it. On a K.O. he finishes with a kick to the head of the kneeling opponent.</li>
+      <li>Miltiadis: <b>foot sweep</b>. Ducking doesn't help, being in the air does. On a K.O. he jumps on the fallen opponent and punches.</li>
     </ul>
     <h2 class="sec">Fighter stats (1-99)</h2>
     <ul class="rules">
@@ -1052,6 +1132,7 @@ overlay.addEventListener('click',e=>{
   else if(ds.rules)showRules();
   else if(ds.fighters)showFighters();
   else if(ds.pick!=null){SET.fighter=+ds.pick;saveSet();showFighters()}
+  else if(ds.opp!=null){SET.opp=+ds.opp;saveSet();showFighters()}
   else if(ds.toggle){SET[ds.toggle]=!SET[ds.toggle];b.setAttribute('aria-pressed',SET[ds.toggle]);b.textContent=SET[ds.toggle]?'On':'Off';saveSet()}
   else if(ds.d)newGame(ds.d);
   else if(ds.online)showOnline();
@@ -1106,9 +1187,8 @@ function update(){
     else if(isOut(CPU))stepOut(CPU);
   }else if(state==='break'){
     // the scorer keeps running through, pushing the opponent back
-    moveFighter(P1,0);if(mode!=='host')moveFighter(CPU,0);separate();
-    // K.O.: the kick throws the loser back before he drops
-    if(ko!=null&&lastLoser&&stTimer>140){const o=lastLoser===P1?CPU:P1;lastLoser.x=Math.max(XMIN,Math.min(XMAX,lastLoser.x+(stTimer-140)*0.22*Math.sign(lastLoser.x-o.x||1)))}
+    if(ko!=null&&lastLoser)koFinale();
+    else{moveFighter(P1,0);if(mode!=='host')moveFighter(CPU,0);separate()}
     stTimer--;
     if(stTimer<=0){if(pendingEnd)endGame();else resetPositions(45)}
   }
@@ -1228,7 +1308,7 @@ function drawArena(){
 
 function getPose(f){
   const ST=stanceOf(f);
-  if(ko!=null&&f===lastLoser&&(state==='break'||state==='end'))return mix(POSE.hurt,POSE.ko,ease((170-stTimer)/24));
+  if(ko!=null&&lastLoser&&(state==='break'||state==='end')){const kp=koPose(f);if(kp)return kp}
   if(state==='break'&&f===lastLoser&&stTimer>45)return POSE.hurt;
   if(f.state==='attack'){
     const m=f.move,t=f.t,s=m.startup,a=m.active,r=m.recovery;
@@ -1285,6 +1365,13 @@ function getPose(f){
       return mix(P,ST,ease((t-s-a)/r));
     }
     if(f.mk==='pdown')return mix(POSE.chamber,ST,ease(t/r));
+    if(f.mk==='sweep'){
+      const P=SWEEP_POSE;
+      if(t<s*0.4)return mix(ST,P.wind,ease(t/(s*0.4)));
+      if(t<s)return mix(P.wind,P.hit,ease((t-s*0.4)/(s*0.6)));
+      if(t<s+a)return P.hit;
+      return mix(P.hit,ST,ease((t-s-a)/r));
+    }
     if(f.mk==='fin'){
       const P=finPoses(f);
       if(t<4)return mix(ST,P.wind,ease(t/4));
@@ -1451,6 +1538,10 @@ function headArt(sh,hd,look,gear){
     if(look.facial!=='beard'){ctx.strokeStyle=shadeC(skin,-0.45);ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x+4,y+2);ctx.quadraticCurveTo(x+6,y+4.5,x+9,y+4.2);ctx.stroke()}
     ctx.fillStyle=gear;ctx.strokeStyle=OL;ctx.lineWidth=1;ctx.beginPath();ctx.roundRect(x+6.4,y+6.4,4.6,2.6,1.2);ctx.fill();ctx.stroke();
   }
+  if(look.noGear){ // headgear gone: just his hair
+    if(!FL){ctx.fillStyle=hair;ctx.beginPath();ctx.arc(x-1,y-1,11.4,Math.PI*1.02,Math.PI*1.98);ctx.quadraticCurveTo(x+4,y-6,x-11,y+1);ctx.fill()}
+    return;
+  }
   // padded headgear in the gear colour: crown, forehead bar and ear guard, face left open
   ctx.beginPath();ctx.arc(x,y,13.8,150*D,322*D);ctx.arc(x,y,9.2,322*D,150*D,true);ctx.closePath();
   ctx.lineWidth=3;ctx.strokeStyle=OL;ctx.stroke();
@@ -1532,20 +1623,36 @@ function drawFighter(f){
   const main=f.main||(f.team==='blue'?'#1e74e8':'#dc322b'),dark=f.dark||(f.team==='blue'?'#0e4398':'#931b15');
   const g=fighterRec(f),sc=S*(g?g.heightM/1.81:1); // drawn to the fighter's real height
   const look=Object.assign({},LOOK_DEF,g&&g.look);
+  if(ko!=null&&koType()==='jsbk'&&f===lastLoser&&(state==='end'||koT()>=KO_HIT.jsbk))look.noGear=true; // kicked clean off
   // headgear, gloves and foot pads match the fighter's pants when he has his own look
   const gear=g&&g.look&&g.look.pants?g.look.pants:main,gearDark=g&&g.look&&g.look.pants?shadeC(g.look.pants,-0.35):dark;
   // small hop while the blitz glides, so he's clearly off the mat
   const pressing=f.state==='press'||(f.state==='attack'&&f.move&&f.move.press);
   const hop=f.state==='attack'&&f.mk==='blitz'&&f.t>=6&&f.t<20?Math.sin((f.t-6)/14*Math.PI)*7:f.state==='attack'&&f.mk==='step'&&f.t>=2&&f.t<17?Math.sin((f.t-2)/15*Math.PI)*16:f.state==='attack'&&(f.mk==='back'||f.mk==='dbf')&&f.t>=1&&f.t<16?Math.sin((f.t-1)/15*Math.PI)*14:f.state==='attack'&&f.mk==='fin'&&f.move&&f.t>=4&&f.t<f.move.startup+f.move.active+8?Math.sin((f.t-4)/(f.move.startup+f.move.active+4)*Math.PI)*24:pressing?Math.abs(Math.sin((f.pt||0)*0.3))*4:0;
+  let hop2=hop;
+  if(ko!=null&&state==='break'&&koType()==='sweep'&&f===(ko===0?P1:CPU)){const t=koT();if(t>=24&&t<44)hop2=Math.sin((t-24)/20*Math.PI)*40} // jumping on him
   ctx.save();ctx.translate(f.x,GROUND);
-  ctx.fillStyle='rgba(0,0,0,.38)';ctx.beginPath();ctx.ellipse(0,2,46*sc*(1-hop/40),9*(1-hop/40),0,0,7);ctx.fill();
-  ctx.translate(0,-hop*S);
+  ctx.fillStyle='rgba(0,0,0,.38)';ctx.beginPath();ctx.ellipse(0,2,46*sc*Math.max(0.3,1-hop2/40),9*Math.max(0.3,1-hop2/40),0,0,7);ctx.fill();
+  ctx.translate(0,-hop2*S);
   const cs=Math.cos(spinOf(f)),sx=(cs<0?-1:1)*Math.max(0.12,Math.abs(cs)); // spinning: squash through edge-on, then turned round
   ctx.scale(f.facing*sc*sx,sc);
   drawBody(p,look,gear,gearDark);
   ctx.restore();FL=false;
 }
 
+// Konstantinos's K.O.: the kick sends the opponent's headgear flying (worked out from the K.O. clock, so both screens agree)
+function drawFlyingHeadgear(){
+  if(ko==null||koType()!=='jsbk'||!lastLoser||(state!=='break'&&state!=='end'))return;
+  const t=(state==='end'?KO_T:koT())-KO_HIT.jsbk;if(t<0)return;
+  const L=lastLoser,g=fighterRec(L),col=g&&g.look&&g.look.pants?g.look.pants:(L.team==='blue'?'#1e74e8':'#dc322b');
+  const dir=-L.facing,x0=L.x-dir*8,y0=GROUND-100,tt=Math.min(t,40);
+  const x=x0+dir*5.5*tt,y=Math.min(GROUND-8,y0-8*tt+0.42*tt*tt),rot=t<40?tt*0.35*dir:14*dir;
+  ctx.save();ctx.translate(x,y);ctx.rotate(rot);
+  ctx.fillStyle=OL;ctx.beginPath();ctx.arc(0,0,16,Math.PI,0);ctx.closePath();ctx.fill();
+  ctx.fillStyle=col;ctx.beginPath();ctx.arc(0,0,13,Math.PI,0);ctx.closePath();ctx.fill();
+  ctx.fillStyle=shadeC(col,0.3);ctx.beginPath();ctx.arc(-3,-5,5,Math.PI,0);ctx.fill();
+  ctx.restore();
+}
 function drawHUD(){
   ctx.textBaseline='middle';
   const box=(x,col,label,val)=>{
@@ -1554,7 +1661,7 @@ function drawHUD(){
     ctx.fillStyle='#fff';ctx.font='34px Bungee, system-ui';ctx.textAlign='right';ctx.fillText(val,x+140,44);
   };
   const meName=FIGHTERS[SET.fighter]?FIGHTERS[SET.fighter].name.split(' ')[0]:'YOU';
-  const foeName=FIGHTERS[1-SET.fighter]?FIGHTERS[1-SET.fighter].name.split(' ')[0]:'CPU';
+  const foeName=FIGHTERS[oppIdx()]?FIGHTERS[oppIdx()].name.split(' ')[0]:'CPU';
   const nm=i=>i!=null&&FIGHTERS[i]?FIGHTERS[i].name.split(' ')[0]:'FRIEND';
   const blueLab=mode==='cpu'?'BLUE · '+meName:'BLUE · '+nm(netFi[0]);
   const redLab=mode==='cpu'?'RED · '+foeName:'RED · '+nm(netFi[1]);
@@ -1592,6 +1699,7 @@ function render(){
     // the attacker is drawn on top so the punch/kick reads clearly
     const order=CPU.state==='attack'?[P1,CPU]:[CPU,P1];
     order.forEach(drawFighter);
+    drawFlyingHeadgear();
     for(const p of parts){ctx.globalAlpha=Math.min(1,p.life/20);ctx.fillStyle=p.col;ctx.fillRect(p.x-2,p.y-2,4,4)}
     ctx.globalAlpha=1;
     for(const p of pops){
