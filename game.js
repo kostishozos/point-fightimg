@@ -255,7 +255,7 @@ const MOVES={
   // blitz: drop low, drive straight forward, backfist in the air, rear punch still in the air, land.
   // active the whole time in the air: backfist reach first, then the longer rear punch
   // bfReach = reach of the backfist part (first frames), reach = the rear punch after it
-  blitz:{name:'BLITZ',startup:8,active:12,recovery:24,reach:125,bfReach:115,pts:1,lunge:7,hy:116,feintBoost:0.1},
+  blitz:{name:'BLITZ',startup:8,active:12,recovery:24,reach:150,bfReach:142,pts:1,lunge:7,hy:116,feintBoost:0.1},
   // punch fake: a short step forward, front foot then back foot the same distance, lead hand rises.
   // a reverse punch (15%) or blitz (10%) thrown before he's settled back into stance gets a boost (see scaledMove)
   fakeP:{name:'PUNCH FAKE',startup:6,active:2,recovery:10,reach:0,pts:0,lunge:0,step:16,fake:'punch'},
@@ -286,6 +286,9 @@ const MOVES={
   // hooks his front leg: he still goes down and it scores, but it can't be a K.O.
   sweep:{name:'SPINNING SWEEP',startup:10,active:7,recovery:16,reach:128,frontReach:152,pts:5,lunge:1.5,hy:8,fin:1}
 };
+// the reverse punch is always the quicker of the two, the blitz always reaches further (both parts of it)
+if(MOVES.blitz.reach<=MOVES.punch.reach)MOVES.blitz.reach=MOVES.punch.reach+12;
+if(MOVES.blitz.bfReach<=MOVES.punch.reach)MOVES.blitz.bfReach=MOVES.punch.reach+4;
 // which move each finisher is, and how its K.O. ends
 const FIN_MOVE={jsbk:'fin',sweep:'sweep'};
 const finMove=f=>{const g=fighterRec(f);return g&&FIN_MOVE[g.finisher]||'fin'};
@@ -1125,7 +1128,17 @@ function scaledMove(f,k){
   if(lv&&!base.noHit){s=Math.round(s*(1+0.1*lv));r=Math.round(r*(1+0.15*lv))}
   if(f.stunT>0){s=Math.round(s*1.5)+1;r=Math.round(r*1.3)} // stunned: everything is slow
   if(boost)s=Math.max(1,Math.floor(s*(1-bp))); // whole frames, rounded in his favour
+  if(k==='blitz')s=Math.max(s,startFor(f,'punch',boost)+1); // never as quick as his reverse punch
   return s===base.startup&&r===base.recovery&&lunge===base.lunge?base:Object.assign({},base,{startup:s,recovery:r,lunge});
+}
+// a move's startup for this fighter right now (stats, tiredness, stun, feint boost), without side effects
+function startFor(f,k,boost){
+  const base=MOVES[k],g=fighterOf(f),isK=KICK_MOVES[k],isP=PUNCH_MOVES[k],lv=staLvl(f);let s=base.startup;
+  if(g&&(isK||isP))s=Math.max(1,Math.round(s*(1-((isK?g.kickSpd:g.punchSpd)-70)*0.005)));
+  if(lv&&!base.noHit)s=Math.round(s*(1+0.1*lv));
+  if(f.stunT>0)s=Math.round(s*1.5)+1;
+  if(boost)s=Math.max(1,Math.floor(s*(1-(base.feintBoost||0))));
+  return s;
 }
 /* ---------- stamina (0-100) ----------
    every move costs stamina, a move that misses costs half as much again, and taking a hit costs 8.
@@ -1243,6 +1256,7 @@ function showRules(){
       <li>Backfist to the body ducks under head strikes and beats the blitz.</li>
       <li>Step in jumps over a side kick (or a kick fake) and counters it.</li>
       <li>A side kick thrown before a head-kicking leg lifts jams it.</li>
+      <li>The reverse punch is the quickest attack. The blitz comes out a little slower, but it reaches further.</li>
       <li>Punch fake: a short step forward with both feet. Before you're back in stance, a reverse punch comes out ${Math.round(MOVES.punch.feintBoost*100)}% faster and goes ${Math.round(MOVES.punch.feintBoost*100)}% further, a blitz ${Math.round(MOVES.blitz.feintBoost*100)}%.</li>
       <li>Reverse punch, blitz and the body backfist drop your head low. For that moment a head kick reaches you even from a fighter who normally can't kick that high.</li>
     </ul>
